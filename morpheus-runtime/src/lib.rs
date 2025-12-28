@@ -59,6 +59,7 @@ pub mod adapter;
 pub mod critical;
 pub mod error;
 pub mod executor;
+pub mod metrics;
 pub mod ringbuf;
 pub mod runtime;
 pub mod scb;
