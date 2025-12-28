@@ -6,6 +6,11 @@
  * and userspace runtimes (Rust, Python, etc.). All types are language-neutral
  * and operate at the worker-thread level, not at task/coroutine granularity.
  *
+ * ARCHITECTURAL GUARDRAILS (Non-Goals):
+ * - Per-task kernel scheduling: Kernel operates on worker threads only
+ * - Bytecode-level preemption: Safe points are language-runtime controlled
+ * - Kernel-managed budgets: Budgets are advisory, not enforced by kernel
+ *
  * Memory Protocol:
  * - SCBs live in a BPF_MAP_TYPE_ARRAY, not in userspace memory
  * - Userspace accesses SCBs via mmap or bpf_map_update_elem
@@ -37,7 +42,66 @@ typedef int64_t  __s64;
 #endif
 
 /*
+ * ============================================================================
+ * Scheduler Mode (Delta #1: Observer vs Enforcer)
+ * ============================================================================
+ */
+#define MORPHEUS_MODE_OBSERVER_ONLY  0  /* Collect data, emit hints, no enforcement */
+#define MORPHEUS_MODE_ENFORCED       1  /* Full escalation + kicks enabled */
+
+/*
+ * ============================================================================
+ * Worker Lifecycle State Machine (Delta #2)
+ * ============================================================================
+ *
+ * State transitions: INIT → REGISTERED → RUNNING → QUIESCING → DEAD
+ *
+ * Rules:
+ * - Kernel emits hints only when state == RUNNING
+ * - Escalation forbidden in INIT or QUIESCING
+ * - Cleanup triggered only from DEAD
+ */
+#define MORPHEUS_WORKER_STATE_INIT       0
+#define MORPHEUS_WORKER_STATE_REGISTERED 1
+#define MORPHEUS_WORKER_STATE_RUNNING    2
+#define MORPHEUS_WORKER_STATE_QUIESCING  3
+#define MORPHEUS_WORKER_STATE_DEAD       4
+
+/*
+ * ============================================================================
+ * Escalation Policy (Delta #3: Pluggable Policies)
+ * ============================================================================
+ */
+#define MORPHEUS_ESCALATION_NONE           0  /* Hints only, no enforcement */
+#define MORPHEUS_ESCALATION_THREAD_KICK    1  /* Kick CPU to force reschedule */
+#define MORPHEUS_ESCALATION_CGROUP_THROTTLE 2 /* Apply cgroup throttling */
+#define MORPHEUS_ESCALATION_HYBRID         3  /* Kick + throttle (most aggressive) */
+
+/*
+ * ============================================================================
+ * Yield Cause Ledger (Delta #5)
+ * ============================================================================
+ */
+#define MORPHEUS_YIELD_NONE              0  /* No yield yet */
+#define MORPHEUS_YIELD_HINT              1  /* Yielded in response to kernel hint */
+#define MORPHEUS_YIELD_CHECKPOINT        2  /* Yielded at explicit checkpoint */
+#define MORPHEUS_YIELD_BUDGET            3  /* Yielded due to budget exhaustion */
+#define MORPHEUS_YIELD_DEFENSIVE         4  /* Defensive yield (heuristic) */
+#define MORPHEUS_YIELD_ESCALATION_RECOVERY 5 /* Recovery after escalation */
+
+/*
+ * ============================================================================
+ * Runtime Determinism Mode (Delta #6)
+ * ============================================================================
+ */
+#define MORPHEUS_RUNTIME_DETERMINISTIC   0  /* No kernel hints - fully deterministic */
+#define MORPHEUS_RUNTIME_PRESSURED       1  /* Kernel hints active */
+#define MORPHEUS_RUNTIME_DEFENSIVE       2  /* Hint loss detected - defensive mode */
+
+/*
+ * ============================================================================
  * Shared Control Block (SCB) - One per worker thread
+ * ============================================================================
  *
  * Memory layout is critical: 64-byte aligned for cache efficiency.
  * All fields are atomically accessed; no locks required.
@@ -69,7 +133,12 @@ struct morpheus_scb {
      */
     __u32 kernel_pressure_level;
 
-    __u32 _pad0;
+    /*
+     * Worker lifecycle state (one of MORPHEUS_WORKER_STATE_*).
+     * Kernel checks this before emitting hints or escalating.
+     */
+    __u32 worker_state;
+
     __u64 _reserved0[4];
 
     /* === Cache Line 2: Runtime → Kernel === */
@@ -101,8 +170,20 @@ struct morpheus_scb {
      */
     __u32 runtime_priority;
 
-    __u32 _pad1;
-    __u64 _reserved1[3];
+    /*
+     * Last yield reason (one of MORPHEUS_YIELD_*).
+     * For observability and tuning.
+     */
+    __u32 last_yield_reason;
+
+    __u64 _reserved1[2];
+
+    /*
+     * Escalation policy for this worker (one of MORPHEUS_ESCALATION_*).
+     */
+    __u32 escalation_policy;
+
+    __u32 _pad;
 
 } __attribute__((aligned(64)));
 
@@ -111,7 +192,24 @@ _Static_assert(sizeof(struct morpheus_scb) == 128,
                "morpheus_scb must be exactly 128 bytes (2 cache lines)");
 
 /*
+ * ============================================================================
+ * Global Pressure (Delta #4)
+ * ============================================================================
+ *
+ * System-wide pressure signals. Runtimes can use these to voluntarily
+ * yield more eagerly. Global pressure can only INCREASE yield eagerness.
+ */
+struct morpheus_global_pressure {
+    __u32 cpu_pressure_pct;     /* CPU pressure 0-100 (PSI-derived) */
+    __u32 io_pressure_pct;      /* I/O pressure 0-100 (PSI-derived) */
+    __u32 memory_pressure_pct;  /* Memory pressure 0-100 (PSI-derived) */
+    __u32 runqueue_depth;       /* Aggregate runqueue depth */
+};
+
+/*
+ * ============================================================================
  * Hint reasons - why the kernel is requesting a yield
+ * ============================================================================
  */
 #define MORPHEUS_HINT_BUDGET    1  /* Worker exceeded time slice */
 #define MORPHEUS_HINT_PRESSURE  2  /* System under CPU pressure */
@@ -139,7 +237,9 @@ struct morpheus_hint {
 };
 
 /*
+ * ============================================================================
  * Configuration constants
+ * ============================================================================
  */
 #define MORPHEUS_MAX_WORKERS      1024
 #define MORPHEUS_DEFAULT_SLICE_NS (5 * 1000 * 1000)  /* 5ms default slice */
@@ -149,8 +249,10 @@ struct morpheus_hint {
 /*
  * Map names (for bpf_obj_get)
  */
-#define MORPHEUS_SCB_MAP_NAME     "scb_map"
-#define MORPHEUS_HINT_RINGBUF_NAME "hint_ringbuf"
-#define MORPHEUS_WORKER_MAP_NAME  "worker_tid_map"
+#define MORPHEUS_SCB_MAP_NAME           "scb_map"
+#define MORPHEUS_HINT_RINGBUF_NAME      "hint_ringbuf"
+#define MORPHEUS_WORKER_MAP_NAME        "worker_tid_map"
+#define MORPHEUS_GLOBAL_PRESSURE_NAME   "global_pressure_map"
+#define MORPHEUS_CONFIG_MAP_NAME        "config_map"
 
 #endif /* __MORPHEUS_SHARED_H */

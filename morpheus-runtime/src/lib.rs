@@ -15,6 +15,14 @@
 //! - **Checkpoint**: Check for pending yield requests
 //! - **Critical Section**: Protect FFI/invariant-sensitive code from interruption
 //! - **Worker Pool**: Manages worker threads and their SCBs
+//! - **Language Adapter**: Abstract API for Rust/Python integration
+//!
+//! ## Architectural Guardrails (Non-Goals)
+//!
+//! The following features are **explicitly out of scope**:
+//! 1. Per-task kernel scheduling (kernel operates on worker threads only)
+//! 2. Bytecode-level preemption (safe points are language-runtime controlled)
+//! 3. Kernel-managed budgets (budgets are advisory, not enforced by kernel)
 //!
 //! ## Usage
 //!
@@ -47,6 +55,7 @@
 //! } // Guard dropped, kernel can escalate again
 //! ```
 
+pub mod adapter;
 pub mod critical;
 pub mod error;
 pub mod executor;
@@ -59,9 +68,13 @@ pub use critical::{critical_section, CriticalGuard};
 pub use error::{Error, Result};
 pub use runtime::{Builder, Runtime};
 pub use scb::ScbHandle;
+pub use adapter::{LanguageAdapter, RustAdapter, rust_adapter};
 
-/// Re-export common types
-pub use morpheus_common::{HintReason, MorpheusHint, MorpheusScb};
+/// Re-export common types including new architectural enums
+pub use morpheus_common::{
+    HintReason, MorpheusHint, MorpheusScb, GlobalPressure,
+    SchedulerMode, WorkerState, EscalationPolicy, YieldReason, RuntimeMode,
+};
 
 /// Check for pending kernel yield requests and yield if needed.
 ///
