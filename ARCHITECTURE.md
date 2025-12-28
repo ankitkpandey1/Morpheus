@@ -11,19 +11,22 @@ graph TB
     subgraph "Userspace"
         RT["Rust Runtime<br/>morpheus-runtime"]
         PY["Python Runtime<br/>morpheus-py"]
-        RT --> SCB["SCB (mmap)"]
-        PY --> SCB
-        RT --> RB["Ring Buffer"]
-        PY --> RB
+        ADAPT["Language Adapter Layer"]
+        RT --> ADAPT
+        PY --> ADAPT
+        ADAPT --> SCB["SCB (mmap)"]
+        ADAPT --> RB["Ring Buffer"]
     end
 
     subgraph "Kernel (sched_ext)"
         BPF["scx_morpheus.bpf.c"]
         BPF --> |"preempt_seq++"|SCB
         BPF --> |"hints"|RB
+        GP["Global Pressure"]
+        BPF --> GP
     end
 
-    SCB --> |"is_in_critical<br/>last_ack_seq"|BPF
+    SCB --> |"is_in_critical<br/>last_ack_seq<br/>worker_state"|BPF
 ```
 
 ## Design Invariants
@@ -36,21 +39,63 @@ graph TB
 
 ---
 
+## Architectural Components
+
+### Scheduler Mode (Observer vs Enforcer)
+
+The scheduler operates in one of two modes:
+
+| Mode | Description |
+|------|-------------|
+| `OBSERVER_ONLY` | Collect data, emit hints, **no enforcement** (default) |
+| `ENFORCED` | Full escalation + CPU kicks when workers ignore hints |
+
+Observer mode is the safest choice for production. Enforced mode requires explicit operator opt-in.
+
+### Worker Lifecycle State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> INIT
+    INIT --> REGISTERED: register_tid()
+    REGISTERED --> RUNNING: start_execution()
+    RUNNING --> QUIESCING: shutdown()
+    QUIESCING --> DEAD: cleanup()
+    RUNNING --> RUNNING: normal operation
+    QUIESCING --> RUNNING: recovery
+    DEAD --> [*]
+```
+
+| State | Hints Allowed? | Escalation Allowed? |
+|-------|----------------|---------------------|
+| INIT | ❌ | ❌ |
+| REGISTERED | ❌ | ❌ |
+| RUNNING | ✅ | ✅ |
+| QUIESCING | ❌ | ❌ |
+| DEAD | ❌ | ❌ |
+
+### Escalation Policies
+
+| Policy | Action |
+|--------|--------|
+| `NONE` | Observer mode - hints only |
+| `THREAD_KICK` | `scx_bpf_kick_cpu()` to force reschedule |
+| `CGROUP_THROTTLE` | Apply cgroup bandwidth throttling |
+| `HYBRID` | Kick + throttle (most aggressive) |
+
+### Runtime Determinism Modes
+
+| Mode | Condition | Behavior |
+|------|-----------|----------|
+| `DETERMINISTIC` | No kernel hints | Fully deterministic execution |
+| `PRESSURED` | Hints received | Cooperative scheduling active |
+| `DEFENSIVE` | Hint loss detected | Eager voluntary yielding |
+
+---
+
 ## Build System
 
 ### BPF Compilation
-
-The BPF scheduler uses a two-phase compilation:
-
-1. **vmlinux.h Generation** - `build.rs` generates `vmlinux.h` from kernel BTF at build time:
-   ```bash
-   bpftool btf dump file /sys/kernel/btf/vmlinux format c
-   ```
-
-2. **BPF Compilation** - `libbpf-cargo` compiles the BPF C code with:
-   - Generated `vmlinux.h` (kernel types)
-   - `compat.bpf.h` (sched_ext macros)
-   - `morpheus_shared.h` (shared types)
 
 ```mermaid
 graph LR
@@ -66,9 +111,9 @@ graph LR
 
 | Header | Purpose |
 |--------|---------|
-| `vmlinux.h` | Kernel types from BTF (task_struct, sched_ext_ops, kfuncs) |
-| `compat.bpf.h` | sched_ext macros (BPF_STRUCT_OPS, SCX_OPS_DEFINE, UEI_*) |
-| `morpheus_shared.h` | Shared types (morpheus_scb, morpheus_hint) |
+| `vmlinux.h` | Kernel types from BTF |
+| `compat.bpf.h` | sched_ext macros |
+| `morpheus_shared.h` | Shared types + enums |
 
 ---
 
@@ -76,75 +121,74 @@ graph LR
 
 ### Shared Control Block (SCB)
 
-One SCB per worker thread, stored in `BPF_MAP_TYPE_ARRAY` with `BPF_F_MMAPABLE`.
-
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Cache Line 1 (Kernel → Runtime)                             │
 ├─────────────────────────────────────────────────────────────┤
-│ preempt_seq (u64)      - Kernel increments to request yield │
-│ budget_remaining_ns    - Remaining time budget              │
-│ kernel_pressure_level  - 0-100 pressure indicator           │
+│ preempt_seq (u64)        - Kernel increments to request yield│
+│ budget_remaining_ns (u64)- Remaining time budget (advisory) │
+│ kernel_pressure_level    - 0-100 pressure indicator         │
+│ worker_state             - Lifecycle state (enum)           │
 ├─────────────────────────────────────────────────────────────┤
 │ Cache Line 2 (Runtime → Kernel)                             │
 ├─────────────────────────────────────────────────────────────┤
-│ is_in_critical_section - 1 if in critical section           │
-│ escapable              - 1 if hard preemption allowed       │
-│ last_ack_seq           - Last acknowledged preempt_seq      │
-│ runtime_priority       - Advisory priority 0-1000           │
+│ is_in_critical_section   - 1 if in critical section         │
+│ escapable                - 1 if hard preemption allowed     │
+│ last_ack_seq             - Last acknowledged preempt_seq    │
+│ runtime_priority         - Advisory priority 0-1000         │
+│ last_yield_reason        - Why worker last yielded (enum)   │
+│ escalation_policy        - Worker's escalation policy       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Ring Buffer (Hints)
+### Global Pressure Aggregator
 
-Edge-triggered events via `BPF_MAP_TYPE_RINGBUF`:
-- Budget exceeded
-- Sustained pressure
-- Runqueue imbalance
+System-wide pressure signals for voluntary yield eagerness:
+
+```c
+struct morpheus_global_pressure {
+    __u32 cpu_pressure_pct;     // CPU pressure 0-100 (PSI-derived)
+    __u32 io_pressure_pct;      // I/O pressure 0-100
+    __u32 memory_pressure_pct;  // Memory pressure 0-100
+    __u32 runqueue_depth;       // Aggregate runqueue depth
+};
+```
 
 ---
 
 ## Escalation Logic
 
-Escalation (forced preemption) requires ALL conditions:
-
 ```c
-if (escapable &&
+// Escalation requires ALL conditions:
+if (scheduler_mode == ENFORCED &&       // Delta #1
+    worker_state == RUNNING &&          // Delta #2
+    escalation_policy != NONE &&        // Delta #3
+    escapable &&
     !is_in_critical_section &&
     last_ack_seq < preempt_seq &&
     runtime > slice + grace_period) {
-    scx_bpf_kick_cpu(cpu, SCX_KICK_PREEMPT);
+    execute_escalation(policy);         // Delta #3
 }
 ```
 
 ---
 
-## Language Support
-
-### Rust
+## Language Adapter Layer
 
 ```rust
-// Checkpoint in CPU-heavy code
-morpheus::checkpoint!();
-
-// Protect critical regions
-let _guard = morpheus::critical_section();
+pub trait LanguageAdapter {
+    fn enter_safe_point(&self);
+    fn enter_checkpoint(&self) -> bool;
+    fn enter_critical(&self) -> CriticalGuard;
+    fn yield_worker(&self);
+    fn default_escapable(&self) -> bool;
+}
 ```
 
-Default: `escapable = true`
-
-### Python
-
-```python
-# Checkpoint in CPU-heavy code
-morpheus.checkpoint()
-
-# Protect critical regions
-with morpheus.critical():
-    pass
-```
-
-Default: `escapable = false` (GIL safety)
+| Language | `default_escapable` | Reason |
+|----------|---------------------|--------|
+| Rust | `true` | Safe to preempt outside critical sections |
+| Python | `false` | GIL safety requires cooperative scheduling |
 
 ---
 
@@ -153,74 +197,58 @@ Default: `escapable = false` (GIL safety)
 ```
 Morpheus/
 ├── Cargo.toml                # Workspace configuration
-├── Cargo.lock                # Pinned dependencies
 ├── README.md                 # Project overview
 ├── ARCHITECTURE.md           # This file
+├── NON_GOALS.md              # Architectural guardrails
 ├── benchmark.md              # Performance data
 │
-├── morpheus-common/          # Shared types (SCB, hints)
-│   ├── Cargo.toml
+├── morpheus-common/          # Shared types + enums
 │   ├── include/
-│   │   └── morpheus_shared.h # C header for BPF/userspace
+│   │   └── morpheus_shared.h # C header (enums, SCB, hints)
 │   └── src/lib.rs            # Rust definitions
 │
 ├── scx_morpheus/             # BPF scheduler
-│   ├── Cargo.toml
 │   ├── build.rs              # BTF vmlinux.h generation
-│   ├── src/
-│   │   ├── main.rs           # Scheduler loader
-│   │   └── bpf/
-│   │       ├── scx_morpheus.bpf.c   # BPF program
-│   │       └── compat.bpf.h         # sched_ext macros
+│   └── src/bpf/
+│       ├── scx_morpheus.bpf.c   # BPF program
+│       └── compat.bpf.h         # sched_ext macros
 │
 ├── morpheus-runtime/         # Rust runtime
-│   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs            # Public API
+│       ├── adapter.rs        # Language adapter trait
 │       ├── scb.rs            # SCB management
 │       ├── critical.rs       # Critical sections
-│       ├── executor.rs       # Async executor
-│       ├── ringbuf.rs        # Hint consumption
-│       ├── runtime.rs        # Runtime builder
 │       └── worker.rs         # Worker threads
 │
 ├── morpheus-py/              # Python bindings
-│   ├── Cargo.toml
-│   ├── pyproject.toml
-│   └── src/lib.rs
 │
 └── morpheus-bench/           # Benchmarks
-    ├── Cargo.toml
-    ├── benches/
-    │   └── checkpoint.rs     # Criterion microbenchmarks
-    └── src/bin/
-        ├── starvation.rs     # Starvation recovery test
-        ├── liar.rs           # Critical section test
-        └── latency.rs        # Latency distribution
 ```
+
+---
+
+## Non-Goals (Guardrails)
+
+See [NON_GOALS.md](NON_GOALS.md) for details:
+
+1. **Per-task kernel scheduling** - Kernel operates on worker threads only
+2. **Bytecode-level preemption** - Safe points are language-runtime controlled
+3. **Kernel-managed budgets** - Budgets are advisory, not enforced
 
 ---
 
 ## Requirements
 
-### Kernel Requirements
+### Kernel
 - Linux 6.12+ with `CONFIG_SCHED_CLASS_EXT=y`
-- `CONFIG_DEBUG_INFO_BTF=y` (for vmlinux.h generation)
-- `CAP_BPF` and `CAP_SYS_ADMIN` capabilities
+- `CONFIG_DEBUG_INFO_BTF=y`
 
-### Build Dependencies
+### Build
 ```bash
-# Debian/Ubuntu
-sudo apt install -y \
-    pkg-config libelf-dev clang llvm \
-    linux-headers-$(uname -r) \
-    libc6-dev-i386 gcc-multilib \
-    libbpf-dev bpftool
+sudo apt install -y pkg-config libelf-dev clang llvm \
+    linux-headers-$(uname -r) libbpf-dev bpftool
 ```
-
-### Runtime Dependencies
-- `libbpf` shared library
-- Root privileges for scheduler attachment
 
 ---
 

@@ -11,6 +11,17 @@ Morpheus-Hybrid enables async runtimes (Rust, Python) to receive yield hints fro
 - **Zero-copy communication**: mmap'd SCBs, ring buffer hints
 - **Safe**: Critical sections prevent forced preemption
 - **Observable**: Metrics for hints, escalations, drops
+- **Pluggable policies**: Observer-only mode or full enforcement
+
+## Architecture Highlights
+
+| Component | Description |
+|-----------|-------------|
+| **Scheduler Mode** | Observer-only (default, safest) or Enforced (opt-in) |
+| **Worker States** | INIT → REGISTERED → RUNNING → QUIESCING → DEAD |
+| **Escalation Policies** | NONE, THREAD_KICK, CGROUP_THROTTLE, HYBRID |
+| **Determinism Modes** | DETERMINISTIC, PRESSURED, DEFENSIVE |
+| **Language Adapters** | Abstract API preserving language semantics |
 
 ## Requirements
 
@@ -51,6 +62,7 @@ cd morpheus-py && maturin build --release
 
 ```bash
 # Load the sched_ext scheduler (requires root)
+# Observer mode (default) - collects metrics, emits hints, no enforcement
 sudo ./target/release/scx_morpheus --slice-ms 5 --grace-ms 100 --debug
 ```
 
@@ -124,6 +136,19 @@ sudo ./target/release/latency --duration 30 --workers 4 --pressure
 - Critical sections prevent all forced preemption
 - Escalation is failure recovery, not scheduling policy
 - Scheduler auto-falls back to CFS on any BPF error
+
+## Non-Goals
+
+See [NON_GOALS.md](NON_GOALS.md) for features explicitly out of scope:
+- Per-task kernel scheduling
+- Bytecode-level preemption
+- Kernel-managed budgets
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Detailed architecture with diagrams
+- [benchmark.md](benchmark.md) - Performance data and methodology
+- [NON_GOALS.md](NON_GOALS.md) - Architectural guardrails
 
 ## License
 
