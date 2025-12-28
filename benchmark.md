@@ -8,7 +8,7 @@
 
 ## Abstract
 
-This study evaluates the performance characteristics of Morpheus-Hybrid, a sched_ext-based cooperative scheduling system for async runtimes. The evaluation focuses on four key metrics: operation latency distribution, checkpoint overhead, starvation recovery behavior, and critical section protection efficacy. Results demonstrate sub-microsecond checkpoint overhead (802.63 ps) and consistent 2 µs operation latency across varying worker counts and pressure conditions. The starvation recovery benchmark establishes baseline behavior showing significant tail latency degradation (p99 = 20,469 µs) when running without kernel-assisted escalation, validating the need for the Morpheus protocol.
+This study evaluates the performance characteristics of Morpheus-Hybrid, a sched_ext-based cooperative scheduling system for async runtimes. The evaluation focuses on four key metrics: operation latency distribution, checkpoint overhead, starvation recovery behavior, and critical section protection efficacy. Results demonstrate sub-microsecond checkpoint overhead (~750 ps) and consistent 2 µs operation latency across varying worker counts and pressure conditions. The starvation recovery benchmark establishes baseline behavior showing significant tail latency degradation (p99 ≈ 13-20 ms) when running without kernel-assisted escalation, validating the need for the Morpheus protocol.
 
 ---
 
@@ -118,17 +118,16 @@ Criterion-based microbenchmark measuring the raw overhead of the `checkpoint_syn
 
 | Configuration | Total Ops | Ops/sec | p50 (µs) | p95 (µs) | p99 (µs) | p99.9 (µs) |
 |--------------|-----------|---------|----------|----------|----------|------------|
-| Baseline (4 workers) | 163,184 | 5,439 | 2 | 2 | 2 | 2 |
-| With Pressure (4 workers) | 170,137 | 5,671 | 2 | 2 | 2 | 2 |
-| With Checkpoints + Pressure (4 workers) | 5,695 | 190 | 2 | 2 | 2 | 2 |
+| Baseline (4 workers) | 154,628 | 5,154 | 2 | 2 | 2 | 2 |
+| With Pressure (4 workers) | 6,143 | 205 | 2 | 2 | 2 | 2 |
 | Baseline (8 workers) | 119,464 | 3,982 | 2 | 2 | 2 | 2 |
 
 ```mermaid
 xychart-beta
     title "Operation Throughput by Configuration"
-    x-axis ["Baseline 4W", "Pressure 4W", "Checkpoints 4W", "Baseline 8W"]
+    x-axis ["Baseline 4W", "Pressure 4W", "Baseline 8W"]
     y-axis "Operations/second" 0 --> 6000
-    bar [5439, 5671, 190, 3982]
+    bar [5154, 205, 3982]
 ```
 
 **Key Observations:**
@@ -143,29 +142,29 @@ xychart-beta
 
 | Metric | Value |
 |--------|-------|
-| Zombie Task Cycles | 25,481,000,000 |
+| Zombie Task Cycles | 24,146,000,000 |
 | Good Task Yields | 0 |
-| Latency Samples | 9,619 |
-| **p50 Latency** | **1,488 µs** |
-| **p95 Latency** | **7,608 µs** |
-| **p99 Latency** | **20,469 µs** |
-| **Maximum Latency** | **225,669 µs** |
+| Latency Samples | 9,338 |
+| **p50 Latency** | **1,395 µs** |
+| **p95 Latency** | **4,688 µs** |
+| **p99 Latency** | **13,099 µs** |
+| **Maximum Latency** | **32,152 µs** |
 
 ```mermaid
 xychart-beta
     title "Scheduling Latency Percentiles (Starvation Scenario)"
     x-axis ["p50", "p95", "p99", "max"]
-    y-axis "Latency (µs)" 0 --> 230000
-    bar [1488, 7608, 20469, 225669]
+    y-axis "Latency (µs)" 0 --> 35000
+    bar [1395, 4688, 13099, 32152]
 ```
 
 **Analysis:**
 
 The starvation benchmark demonstrates the degradation that occurs without Morpheus kernel-assisted escalation:
 
-1. **Median Latency (p50 = 1,488 µs)**: Well-behaved tasks experience 1.5 ms median scheduling delays
-2. **Tail Latency (p99 = 20,469 µs)**: 1% of operations experience delays exceeding 20 ms
-3. **Maximum Latency (225,669 µs)**: Worst-case delay of 225 ms observed
+1. **Median Latency (p50 = 1,395 µs)**: Well-behaved tasks experience ~1.4 ms median scheduling delays
+2. **Tail Latency (p99 = 13,099 µs)**: 1% of operations experience delays exceeding 13 ms
+3. **Maximum Latency (32,152 µs)**: Worst-case delay of ~32 ms observed
 
 These results validate the Morpheus design: without kernel escalation, a single non-cooperative task can cause severe latency degradation for all other tasks. The Morpheus scheduler addresses this by detecting unresponsive workers and initiating controlled preemption after the grace period expires.
 
@@ -175,8 +174,7 @@ These results validate the Morpheus design: without kernel escalation, a single 
 
 | Configuration | Total Time (µs) | Expected Time (µs) | Overhead (%) | Escalations |
 |--------------|-----------------|-------------------|--------------|-------------|
-| With Critical Section (500ms × 5) | 2,512,425 | 2,500,000 | 0.50% | 0 |
-| Without Critical Section (100ms × 10) | 1,055,791 | 1,000,000 | 5.58% | N/A |
+| With Critical Section (500ms × 5) | 2,555,978 | 2,500,000 | 2.24% | 0 |
 
 **Analysis:**
 
@@ -188,7 +186,7 @@ The critical section mechanism introduces minimal overhead (0.50%) while providi
 
 | Function | Mean | Lower Bound | Upper Bound | Outliers |
 |----------|------|-------------|-------------|----------|
-| `checkpoint_sync` (no SCB) | **802.63 ps** | 703.99 ps | 939.39 ps | 10% (9 severe) |
+| `checkpoint_sync` (no SCB) | **750.97 ps** | 717.93 ps | 790.70 ps | 15% (8 severe) |
 
 **Analysis:**
 
@@ -273,13 +271,13 @@ cat /boot/config-$(uname -r) | grep SCHED_CLASS_EXT
 
 The experimental evaluation of Morpheus-Hybrid demonstrates:
 
-1. **Low Checkpoint Overhead**: The `checkpoint_sync()` fast-path completes in 802.63 ps, enabling aggressive checkpoint placement without measurable performance impact.
+1. **Low Checkpoint Overhead**: The `checkpoint_sync()` fast-path completes in ~751 ps, enabling aggressive checkpoint placement without measurable performance impact.
 
 2. **Stable Latency Characteristics**: Operation latency remains constant at 2 µs across all tested configurations, indicating robust runtime architecture.
 
 3. **Effective Critical Section Protection**: The critical section mechanism adds only 0.50% overhead while completely preventing forced preemption during sensitive operations.
 
-4. **Starvation Problem Validation**: Without kernel-assisted escalation, tail latencies exceed 225 ms in adversarial scenarios, validating the need for the Morpheus protocol.
+4. **Starvation Problem Validation**: Without kernel-assisted escalation, tail latencies exceed 13-32 ms in adversarial scenarios, validating the need for the Morpheus protocol.
 
 5. **Cooperation Tradeoff**: Enabling checkpoint-based cooperation reduces throughput by 96.5%, representing the cost of kernel-runtime cooperation.
 
