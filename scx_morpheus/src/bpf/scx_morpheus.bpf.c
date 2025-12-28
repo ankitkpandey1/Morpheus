@@ -17,6 +17,12 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
+
+/* Error codes */
+#ifndef ENOMEM
+#define ENOMEM 12
+#endif
+
 #include "morpheus_shared.h"
 
 char _license[] SEC("license") = "GPL";
@@ -269,11 +275,11 @@ void BPF_STRUCT_OPS(morpheus_stopping, struct task_struct *p, bool runnable)
     /* Update SCB budget */
     scb = get_scb(tctx->worker_id);
     if (scb) {
-        u64 budget = __sync_load_n(&scb->budget_remaining_ns, __ATOMIC_RELAXED);
+        u64 budget = __sync_fetch_and_add(&scb->budget_remaining_ns, 0);
         if (budget > delta)
-            __sync_store_n(&scb->budget_remaining_ns, budget - delta, __ATOMIC_RELAXED);
+            __sync_lock_test_and_set(&scb->budget_remaining_ns, budget - delta);
         else
-            __sync_store_n(&scb->budget_remaining_ns, 0, __ATOMIC_RELAXED);
+            __sync_lock_test_and_set(&scb->budget_remaining_ns, 0);
     }
 }
 
@@ -322,9 +328,9 @@ void BPF_STRUCT_OPS(morpheus_tick, struct task_struct *p)
                   p->pid, deadline);
 
         /* === Gated Escalation Check === */
-        escapable = __sync_load_n(&scb->escapable, __ATOMIC_ACQUIRE);
-        is_critical = __sync_load_n(&scb->is_in_critical_section, __ATOMIC_ACQUIRE);
-        last_ack_seq = __sync_load_n(&scb->last_ack_seq, __ATOMIC_ACQUIRE);
+        escapable = __sync_fetch_and_add(&scb->escapable, 0);
+        is_critical = __sync_fetch_and_add(&scb->is_in_critical_section, 0);
+        last_ack_seq = __sync_fetch_and_add(&scb->last_ack_seq, 0);
 
         /*
          * Escalation conditions (ALL must be true):

@@ -25,12 +25,25 @@ Morpheus-Hybrid enables async runtimes (Rust, Python) to receive yield hints fro
 
 ```bash
 # Install dependencies (Debian/Ubuntu)
-sudo apt install clang llvm libelf-dev linux-headers-$(uname -r)
+sudo apt install -y \
+    pkg-config \
+    libelf-dev \
+    clang \
+    llvm \
+    linux-headers-$(uname -r) \
+    libc6-dev-i386 \
+    gcc-multilib \
+    libbpf-dev \
+    bpftool
+
+# Verify kernel sched_ext support
+cat /boot/config-$(uname -r) | grep SCHED_CLASS_EXT
+# Should output: CONFIG_SCHED_CLASS_EXT=y
 
 # Build all
 cargo build --release
 
-# Build Python module
+# Build Python module (optional)
 cd morpheus-py && maturin build --release
 ```
 

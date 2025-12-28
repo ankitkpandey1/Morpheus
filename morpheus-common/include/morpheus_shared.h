@@ -15,8 +15,17 @@
 #ifndef __MORPHEUS_SHARED_H
 #define __MORPHEUS_SHARED_H
 
-#ifdef __KERNEL__
+/* BPF programs use vmlinux.h types, userspace uses stdint.h */
+#if defined(__KERNEL__)
 #include <linux/types.h>
+#elif defined(__BPF__) || defined(__bpf__) || defined(__TARGET_ARCH_x86)
+/* In BPF context, types come from vmlinux.h - do not include stdint.h */
+typedef unsigned char  __u8;
+typedef unsigned short __u16;
+typedef unsigned int   __u32;
+typedef unsigned long long __u64;
+typedef signed int     __s32;
+typedef signed long long __s64;
 #else
 #include <stdint.h>
 typedef uint8_t  __u8;
