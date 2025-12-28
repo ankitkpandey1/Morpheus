@@ -255,7 +255,7 @@ pub struct MorpheusScb {
     /// Worker lifecycle state (WorkerState enum)
     pub worker_state: AtomicU32,
     
-    _reserved0: [u64; 4],
+    _reserved0: [u64; 5],
 
     // === Cache Line 2: Runtime → Kernel ===
     /// 1 if in critical section (FFI, GIL-held, etc.).
@@ -274,7 +274,7 @@ pub struct MorpheusScb {
     /// Last yield reason (YieldReason enum) - for observability
     pub last_yield_reason: AtomicU32,
     
-    _reserved1: [u64; 2],
+    _reserved1: [u64; 1],
     
     /// Escalation policy for this worker
     pub escalation_policy: AtomicU32,
@@ -301,13 +301,13 @@ impl MorpheusScb {
             budget_remaining_ns: AtomicU64::new(0),
             kernel_pressure_level: AtomicU32::new(0),
             worker_state: AtomicU32::new(WorkerState::Init as u32),
-            _reserved0: [0; 4],
+            _reserved0: [0; 5],
             is_in_critical_section: AtomicU32::new(0),
             escapable: AtomicU32::new(if escapable { 1 } else { 0 }),
             last_ack_seq: AtomicU64::new(0),
             runtime_priority: AtomicU32::new(500), // Default mid-priority
             last_yield_reason: AtomicU32::new(YieldReason::None as u32),
-            _reserved1: [0; 2],
+            _reserved1: [0; 1],
             escalation_policy: AtomicU32::new(EscalationPolicy::None as u32),
             _pad: 0,
         }

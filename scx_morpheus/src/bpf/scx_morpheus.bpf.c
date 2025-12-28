@@ -114,6 +114,38 @@ struct {
 } hint_ringbuf SEC(".maps");
 
 /*
+ * Hint Statistics Map - Per-worker rate limiting
+ */
+struct hint_stats {
+    u64 last_hint_ns;     /* Timestamp of last hint */
+    u64 hints_this_period; /* Hints emitted in current period */
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, u32);
+    __type(value, struct hint_stats);
+    __uint(max_entries, MORPHEUS_MAX_WORKERS);
+} hint_stats_map SEC(".maps");
+
+/*
+ * Runtime Config Map - Tunable parameters
+ */
+struct morpheus_config {
+    u64 slice_ns;
+    u64 grace_period_ns;
+    u32 hint_rate_limit;    /* Max hints per second per worker */
+    u32 scheduler_mode;     /* OBSERVER_ONLY or ENFORCED */
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, u32);
+    __type(value, struct morpheus_config);
+    __uint(max_entries, 1);
+} config_map SEC(".maps");
+
+/*
  * Per-task state for tracking runtime
  */
 struct task_ctx {

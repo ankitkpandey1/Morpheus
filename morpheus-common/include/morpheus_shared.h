@@ -139,7 +139,7 @@ struct morpheus_scb {
      */
     __u32 worker_state;
 
-    __u64 _reserved0[4];
+    __u64 _reserved0[5];
 
     /* === Cache Line 2: Runtime → Kernel === */
 
@@ -176,7 +176,7 @@ struct morpheus_scb {
      */
     __u32 last_yield_reason;
 
-    __u64 _reserved1[2];
+    __u64 _reserved1[1];
 
     /*
      * Escalation policy for this worker (one of MORPHEUS_ESCALATION_*).
