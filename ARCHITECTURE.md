@@ -34,6 +34,44 @@ graph TB
 4. **Deterministic behavior in absence of kernel pressure**
 5. **Escalation is failure recovery, not scheduling policy**
 
+---
+
+## Build System
+
+### BPF Compilation
+
+The BPF scheduler uses a two-phase compilation:
+
+1. **vmlinux.h Generation** - `build.rs` generates `vmlinux.h` from kernel BTF at build time:
+   ```bash
+   bpftool btf dump file /sys/kernel/btf/vmlinux format c
+   ```
+
+2. **BPF Compilation** - `libbpf-cargo` compiles the BPF C code with:
+   - Generated `vmlinux.h` (kernel types)
+   - `compat.bpf.h` (sched_ext macros)
+   - `morpheus_shared.h` (shared types)
+
+```mermaid
+graph LR
+    BTF["/sys/kernel/btf/vmlinux"] --> |bpftool| VMH["vmlinux.h"]
+    VMH --> BPF["scx_morpheus.bpf.c"]
+    COMPAT["compat.bpf.h"] --> BPF
+    SHARED["morpheus_shared.h"] --> BPF
+    BPF --> |libbpf-cargo| SKEL["scx_morpheus.skel.rs"]
+    SKEL --> MAIN["main.rs"]
+```
+
+### Header Dependencies
+
+| Header | Purpose |
+|--------|---------|
+| `vmlinux.h` | Kernel types from BTF (task_struct, sched_ext_ops, kfuncs) |
+| `compat.bpf.h` | sched_ext macros (BPF_STRUCT_OPS, SCX_OPS_DEFINE, UEI_*) |
+| `morpheus_shared.h` | Shared types (morpheus_scb, morpheus_hint) |
+
+---
+
 ## Communication Model
 
 ### Shared Control Block (SCB)
@@ -64,6 +102,8 @@ Edge-triggered events via `BPF_MAP_TYPE_RINGBUF`:
 - Sustained pressure
 - Runqueue imbalance
 
+---
+
 ## Escalation Logic
 
 Escalation (forced preemption) requires ALL conditions:
@@ -76,6 +116,8 @@ if (escapable &&
     scx_bpf_kick_cpu(cpu, SCX_KICK_PREEMPT);
 }
 ```
+
+---
 
 ## Language Support
 
@@ -104,30 +146,84 @@ with morpheus.critical():
 
 Default: `escapable = false` (GIL safety)
 
+---
+
 ## File Structure
 
 ```
 Morpheus/
+├── Cargo.toml                # Workspace configuration
+├── Cargo.lock                # Pinned dependencies
+├── README.md                 # Project overview
+├── ARCHITECTURE.md           # This file
+├── benchmark.md              # Performance data
+│
 ├── morpheus-common/          # Shared types (SCB, hints)
+│   ├── Cargo.toml
 │   ├── include/
-│   │   └── morpheus_shared.h
-│   └── src/lib.rs
+│   │   └── morpheus_shared.h # C header for BPF/userspace
+│   └── src/lib.rs            # Rust definitions
+│
 ├── scx_morpheus/             # BPF scheduler
-│   ├── src/bpf/
-│   │   └── scx_morpheus.bpf.c
-│   └── src/main.rs           # Loader
+│   ├── Cargo.toml
+│   ├── build.rs              # BTF vmlinux.h generation
+│   ├── src/
+│   │   ├── main.rs           # Scheduler loader
+│   │   └── bpf/
+│   │       ├── scx_morpheus.bpf.c   # BPF program
+│   │       └── compat.bpf.h         # sched_ext macros
+│
 ├── morpheus-runtime/         # Rust runtime
+│   ├── Cargo.toml
 │   └── src/
-│       ├── lib.rs
-│       ├── scb.rs
-│       ├── critical.rs
-│       ├── executor.rs
-│       └── worker.rs
+│       ├── lib.rs            # Public API
+│       ├── scb.rs            # SCB management
+│       ├── critical.rs       # Critical sections
+│       ├── executor.rs       # Async executor
+│       ├── ringbuf.rs        # Hint consumption
+│       ├── runtime.rs        # Runtime builder
+│       └── worker.rs         # Worker threads
+│
 ├── morpheus-py/              # Python bindings
+│   ├── Cargo.toml
+│   ├── pyproject.toml
 │   └── src/lib.rs
+│
 └── morpheus-bench/           # Benchmarks
+    ├── Cargo.toml
+    ├── benches/
+    │   └── checkpoint.rs     # Criterion microbenchmarks
     └── src/bin/
-        ├── starvation.rs
-        ├── liar.rs
-        └── latency.rs
+        ├── starvation.rs     # Starvation recovery test
+        ├── liar.rs           # Critical section test
+        └── latency.rs        # Latency distribution
 ```
+
+---
+
+## Requirements
+
+### Kernel Requirements
+- Linux 6.12+ with `CONFIG_SCHED_CLASS_EXT=y`
+- `CONFIG_DEBUG_INFO_BTF=y` (for vmlinux.h generation)
+- `CAP_BPF` and `CAP_SYS_ADMIN` capabilities
+
+### Build Dependencies
+```bash
+# Debian/Ubuntu
+sudo apt install -y \
+    pkg-config libelf-dev clang llvm \
+    linux-headers-$(uname -r) \
+    libc6-dev-i386 gcc-multilib \
+    libbpf-dev bpftool
+```
+
+### Runtime Dependencies
+- `libbpf` shared library
+- Root privileges for scheduler attachment
+
+---
+
+## License
+
+SPDX-License-Identifier: GPL-2.0-only
