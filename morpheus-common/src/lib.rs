@@ -97,6 +97,21 @@ impl WorkerState {
     }
 }
 
+impl TryFrom<u32> for WorkerState {
+    type Error = ();
+    
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(WorkerState::Init),
+            1 => Ok(WorkerState::Registered),
+            2 => Ok(WorkerState::Running),
+            3 => Ok(WorkerState::Quiescing),
+            4 => Ok(WorkerState::Dead),
+            _ => Err(()),
+        }
+    }
+}
+
 // ============================================================================
 // Escalation Policy (Delta #3: Pluggable Policies)
 // ============================================================================
@@ -120,6 +135,20 @@ pub enum EscalationPolicy {
     
     /// Combine kick + throttle (most aggressive)
     Hybrid = 3,
+}
+
+impl TryFrom<u32> for EscalationPolicy {
+    type Error = ();
+    
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(EscalationPolicy::None),
+            1 => Ok(EscalationPolicy::ThreadKick),
+            2 => Ok(EscalationPolicy::CgroupThrottle),
+            3 => Ok(EscalationPolicy::Hybrid),
+            _ => Err(()),
+        }
+    }
 }
 
 // ============================================================================
@@ -150,6 +179,22 @@ pub enum YieldReason {
     
     /// Recovery after escalation
     EscalationRecovery = 5,
+}
+
+impl TryFrom<u32> for YieldReason {
+    type Error = ();
+    
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(YieldReason::None),
+            1 => Ok(YieldReason::Hint),
+            2 => Ok(YieldReason::Checkpoint),
+            3 => Ok(YieldReason::Budget),
+            4 => Ok(YieldReason::Defensive),
+            5 => Ok(YieldReason::EscalationRecovery),
+            _ => Err(()),
+        }
+    }
 }
 
 // ============================================================================
@@ -426,29 +471,111 @@ pub mod map_names {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::mem::{offset_of, size_of, align_of};
 
     #[test]
     fn test_scb_size_and_alignment() {
-        assert_eq!(core::mem::size_of::<MorpheusScb>(), 128);
-        assert_eq!(core::mem::align_of::<MorpheusScb>(), 64);
+        assert_eq!(size_of::<MorpheusScb>(), 128, "SCB must be 128 bytes");
+        assert_eq!(align_of::<MorpheusScb>(), 64, "SCB must be 64-byte aligned");
+    }
+
+    #[test]
+    fn test_scb_cache_line_offsets() {
+        // Cache Line 1: Kernel -> Runtime (bytes 0-63)
+        assert_eq!(offset_of!(MorpheusScb, preempt_seq), 0);
+        assert_eq!(offset_of!(MorpheusScb, budget_remaining_ns), 8);
+        assert_eq!(offset_of!(MorpheusScb, kernel_pressure_level), 16);
+        assert_eq!(offset_of!(MorpheusScb, worker_state), 20);
+        
+        // Cache Line 2: Runtime -> Kernel (bytes 64-127)
+        assert_eq!(offset_of!(MorpheusScb, is_in_critical_section), 64, 
+                   "Cache line 2 must start at offset 64");
+        assert_eq!(offset_of!(MorpheusScb, escapable), 68);
+        assert_eq!(offset_of!(MorpheusScb, last_ack_seq), 72);
+        assert_eq!(offset_of!(MorpheusScb, runtime_priority), 80);
+        assert_eq!(offset_of!(MorpheusScb, last_yield_reason), 84);
+        assert_eq!(offset_of!(MorpheusScb, escalation_policy), 96);
+    }
+
+    #[test]
+    fn test_hint_structure() {
+        assert_eq!(size_of::<MorpheusHint>(), 24);
+    }
+
+    #[test]
+    fn test_global_pressure_structure() {
+        assert_eq!(size_of::<GlobalPressure>(), 16);
     }
 
     #[test]
     fn test_hint_reason_conversion() {
         assert_eq!(HintReason::try_from(1), Ok(HintReason::Budget));
+        assert_eq!(HintReason::try_from(2), Ok(HintReason::Pressure));
+        assert_eq!(HintReason::try_from(3), Ok(HintReason::Imbalance));
+        assert_eq!(HintReason::try_from(4), Ok(HintReason::Deadline));
         assert_eq!(HintReason::try_from(5), Err(()));
+        assert_eq!(HintReason::try_from(0), Err(()));
     }
     
     #[test]
     fn test_worker_state_transitions() {
         assert!(WorkerState::Running.can_receive_hints());
         assert!(!WorkerState::Init.can_receive_hints());
+        assert!(!WorkerState::Registered.can_receive_hints());
+        assert!(!WorkerState::Quiescing.can_receive_hints());
+        assert!(!WorkerState::Dead.can_receive_hints());
+        
+        assert!(WorkerState::Running.can_escalate());
+        assert!(!WorkerState::Init.can_escalate());
         assert!(!WorkerState::Quiescing.can_escalate());
     }
     
     #[test]
     fn test_runtime_mode() {
         assert!(!RuntimeMode::Deterministic.should_yield_eagerly());
+        assert!(!RuntimeMode::Pressured.should_yield_eagerly());
         assert!(RuntimeMode::Defensive.should_yield_eagerly());
     }
+    
+    #[test]
+    fn test_scheduler_mode_defaults() {
+        assert_eq!(SchedulerMode::default(), SchedulerMode::ObserverOnly);
+    }
+    
+    #[test]
+    fn test_escalation_policy_defaults() {
+        assert_eq!(EscalationPolicy::default(), EscalationPolicy::None);
+    }
+    
+    #[test]
+    fn test_scb_new_defaults() {
+        let scb_escapable = MorpheusScb::new(true);
+        let scb_not_escapable = MorpheusScb::new(false);
+        
+        use core::sync::atomic::Ordering;
+        assert_eq!(scb_escapable.escapable.load(Ordering::Relaxed), 1);
+        assert_eq!(scb_not_escapable.escapable.load(Ordering::Relaxed), 0);
+        assert_eq!(scb_escapable.worker_state.load(Ordering::Relaxed), WorkerState::Init as u32);
+        assert_eq!(scb_escapable.escalation_policy.load(Ordering::Relaxed), EscalationPolicy::None as u32);
+    }
+    
+    #[test]
+    fn test_global_pressure_is_pressured() {
+        use core::sync::atomic::Ordering;
+        
+        let pressure = GlobalPressure::new();
+        assert!(!pressure.is_pressured());
+        
+        pressure.cpu_pressure_pct.store(51, Ordering::Relaxed);
+        assert!(pressure.is_pressured());
+        
+        pressure.cpu_pressure_pct.store(0, Ordering::Relaxed);
+        pressure.io_pressure_pct.store(60, Ordering::Relaxed);
+        assert!(pressure.is_pressured());
+        
+        pressure.io_pressure_pct.store(0, Ordering::Relaxed);
+        pressure.memory_pressure_pct.store(75, Ordering::Relaxed);
+        assert!(pressure.is_pressured());
+    }
 }
+

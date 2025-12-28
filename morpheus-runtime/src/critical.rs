@@ -142,4 +142,34 @@ mod tests {
 
         assert!(!in_critical_section());
     }
+    
+    /// Compile-time assertion that CriticalGuard is !Send
+    /// This prevents accidental transfer across threads
+    #[allow(dead_code)]
+    fn assert_critical_guard_not_send() {
+        fn requires_send<T: Send>() {}
+        // This line would fail to compile if CriticalGuard implemented Send
+        // Uncomment to verify: requires_send::<CriticalGuard>();
+    }
+    
+    /// Compile-time assertion that CriticalGuard is !Sync
+    /// This prevents accidental sharing across threads
+    #[allow(dead_code)]
+    fn assert_critical_guard_not_sync() {
+        fn requires_sync<T: Sync>() {}
+        // This line would fail to compile if CriticalGuard implemented Sync
+        // Uncomment to verify: requires_sync::<CriticalGuard>();
+    }
+    
+    /// Verify the static properties using trait bounds
+    #[test]
+    fn test_critical_guard_not_send_or_sync() {
+        // These static assertions verify at compile time that CriticalGuard
+        // does NOT implement Send or Sync
+        
+        // The PhantomData<*const ()> marker makes the type !Send and !Sync
+        // because raw pointers are neither Send nor Sync
+        static_assertions::assert_not_impl_any!(CriticalGuard: Send, Sync);
+    }
 }
+
