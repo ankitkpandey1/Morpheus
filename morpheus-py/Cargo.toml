@@ -1,0 +1,20 @@
+[package]
+name = "morpheus-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Python bindings for Morpheus-Hybrid cooperative async runtime"
+
+[lib]
+name = "morpheus"
+crate-type = ["cdylib"]
+
+# Maturin configuration
+[package.metadata.maturin]
+python-source = "python"
+
+[dependencies]
+morpheus-common = { workspace = true }
+morpheus-runtime = { path = "../morpheus-runtime" }
+pyo3 = { workspace = true }
+tracing = { workspace = true }

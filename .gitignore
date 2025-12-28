@@ -1,0 +1,20 @@
+/target
+/Cargo.lock
+*.pyc
+__pycache__/
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+*.whl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# BPF build artifacts
+*.o
+*.skel.rs

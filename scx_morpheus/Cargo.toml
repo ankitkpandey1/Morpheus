@@ -1,0 +1,24 @@
+[package]
+name = "scx_morpheus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "sched_ext BPF scheduler for Morpheus-Hybrid cooperative async runtime"
+build = "build.rs"
+
+[[bin]]
+name = "scx_morpheus"
+path = "src/main.rs"
+
+[dependencies]
+morpheus-common = { workspace = true }
+libbpf-rs = { workspace = true }
+libc = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+ctrlc = "3"
+
+[build-dependencies]
+libbpf-cargo = { workspace = true }

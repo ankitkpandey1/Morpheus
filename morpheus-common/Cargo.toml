@@ -1,0 +1,10 @@
+[package]
+name = "morpheus-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared types and constants for Morpheus-Hybrid kernel-runtime communication"
+
+[dependencies]
+
+[build-dependencies]

@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = [
+    "morpheus-common",
+    "morpheus-runtime",
+    "scx_morpheus",
+    "morpheus-bench",
+    "morpheus-py",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0"
+repository = "https://github.com/ankitkpandey1/Morpheus"
+authors = ["Ankit Pandey"]
+
+[workspace.dependencies]
+# Shared
+morpheus-common = { path = "morpheus-common" }
+
+# BPF
+libbpf-rs = "0.24"
+libbpf-cargo = "0.24"
+
+# Core
+libc = "0.2"
+crossbeam = "0.8"
+parking_lot = "0.12"
+
+# Async
+tokio = { version = "1", features = ["rt", "sync", "macros"] }
+async-task = "4"
+futures-lite = "2"
+
+# Python bindings
+pyo3 = { version = "0.22", features = ["extension-module"] }
+
+# Utilities
+thiserror = "2"
+tracing = "0.1"
+clap = { version = "4", features = ["derive"] }
+
+# Benchmarks
+criterion = { version = "0.5", features = ["html_reports"] }

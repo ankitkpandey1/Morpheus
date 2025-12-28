@@ -1,0 +1,34 @@
+[package]
+name = "morpheus-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Benchmarks and stress tests for Morpheus-Hybrid"
+
+[[bin]]
+name = "starvation"
+path = "src/bin/starvation.rs"
+
+[[bin]]
+name = "liar"
+path = "src/bin/liar.rs"
+
+[[bin]]
+name = "latency"
+path = "src/bin/latency.rs"
+
+[dependencies]
+morpheus-common = { workspace = true }
+morpheus-runtime = { path = "../morpheus-runtime" }
+libc = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "checkpoint"
+harness = false

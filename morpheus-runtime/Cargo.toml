@@ -1,0 +1,27 @@
+[package]
+name = "morpheus-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Morpheus-Hybrid cooperative async runtime with kernel-guided yields"
+
+[features]
+default = []
+tokio = ["dep:tokio"]
+
+[dependencies]
+morpheus-common = { workspace = true }
+libbpf-rs = { workspace = true }
+libc = { workspace = true }
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+memmap2 = "0.9"
+
+# Optional tokio integration
+tokio = { workspace = true, optional = true }
+
+# Async primitives
+async-task = { workspace = true }
+futures-lite = { workspace = true }

@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      
+      - name: Run clippy (non-BPF crates)
+        run: |
+          cargo clippy -p morpheus-common -p morpheus-runtime -p morpheus-bench \
+            -- -D warnings
+      
+      - name: Run tests (non-BPF crates)
+        run: |
+          cargo test -p morpheus-common -p morpheus-runtime --lib
+
+  python:
+    name: Python Bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install maturin
+        run: pip install maturin
+      
+      - name: Check morpheus-py compiles
+        run: cargo check -p morpheus-py
+      
+      - name: Verify Python syntax
+        run: |
+          python -m py_compile morpheus-py/python/morpheus_asyncio.py
+          python -m py_compile morpheus-py/python/__init__.py
+
+  # BPF build requires kernel headers - run on self-hosted runner with 6.12+
+  bpf:
+    name: BPF Scheduler
+    runs-on: ubuntu-latest
+    continue-on-error: true  # May fail without proper kernel headers
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+      
+      - name: Install BPF dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libelf-dev
+      
+      - name: Check for vmlinux.h
+        run: |
+          if [ -f /sys/kernel/btf/vmlinux ]; then
+            echo "Kernel BTF available, generating vmlinux.h..."
+            bpftool btf dump file /sys/kernel/btf/vmlinux format c > \
+              scx_morpheus/src/bpf/vmlinux.h
+          else
+            echo "::warning::Kernel BTF not available, using stub vmlinux.h"
+          fi
+      
+      - name: Try to build scx_morpheus
+        run: cargo check -p scx_morpheus || echo "::warning::BPF build failed (expected without kernel 6.12+)"
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+      
+      - name: Build docs (non-BPF)
+        run: |
+          cargo doc --no-deps -p morpheus-common -p morpheus-runtime
