@@ -9,7 +9,7 @@
 //! - Other tasks on the same worker are delayed
 
 use clap::Parser;
-use morpheus_runtime::{critical_section, Builder};
+use morpheus_runtime::critical_section;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;

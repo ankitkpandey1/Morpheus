@@ -64,12 +64,8 @@ impl ScbHandle {
         // Forget the file to avoid closing the fd (it's owned by libbpf)
         std::mem::forget(file);
 
-        let ptr = NonNull::new(mmap.as_ptr() as *mut MorpheusScb).ok_or_else(|| {
-            Error::Mmap(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "mmap returned null",
-            ))
-        })?;
+        let ptr = NonNull::new(mmap.as_ptr() as *mut MorpheusScb)
+            .ok_or_else(|| Error::Mmap(std::io::Error::other("mmap returned null")))?;
 
         // Initialize the SCB
         let scb = &*ptr.as_ptr();

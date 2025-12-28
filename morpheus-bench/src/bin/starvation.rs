@@ -50,7 +50,7 @@ fn main() {
         Arc::new(parking_lot::Mutex::new(Vec::new()));
 
     // Build runtime
-    let runtime = Builder::new()
+    let _runtime = Builder::new()
         .num_workers(args.num_good_tasks + 1)
         .escapable(true) // Allow escalation for zombies
         .build();

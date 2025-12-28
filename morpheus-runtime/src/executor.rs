@@ -208,6 +208,7 @@ thread_local! {
 }
 
 /// Set the current executor for this thread
+#[allow(dead_code)]
 pub(crate) fn set_current_executor(executor: Arc<LocalExecutor>) {
     CURRENT_EXECUTOR.with(|e| {
         *e.borrow_mut() = Some(executor);

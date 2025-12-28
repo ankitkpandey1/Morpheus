@@ -127,4 +127,6 @@ sudo ./target/release/latency --duration 30 --workers 4 --pressure
 
 ## License
 
-GPL-2.0
+GPL-2.0-only
+
+SPDX-License-Identifier: GPL-2.0-only

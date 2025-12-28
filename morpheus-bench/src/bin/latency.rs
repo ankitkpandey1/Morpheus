@@ -4,7 +4,7 @@
 //! that kernel-guided cooperation improves tail latency.
 
 use clap::Parser;
-use morpheus_runtime::{checkpoint_sync, Builder};
+use morpheus_runtime::checkpoint_sync;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -68,6 +68,7 @@ impl LatencyHistogram {
         1 << 31
     }
 
+    #[allow(dead_code)]
     fn total(&self) -> u64 {
         self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).sum()
     }

@@ -101,6 +101,7 @@ pub struct Runtime {
     workers: RwLock<Option<WorkerPool>>,
 
     /// Global task injector
+    #[allow(dead_code)]
     injector: Arc<Injector<async_task::Runnable>>,
 
     /// Defensive mode controller
