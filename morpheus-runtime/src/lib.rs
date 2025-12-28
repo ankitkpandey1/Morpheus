@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2024 Ankit Kumar Pandey <ankitkpandey1@gmail.com>
+
 //! # Morpheus Runtime
 //!
 //! A kernel-guided cooperative async runtime with opt-in escalation.

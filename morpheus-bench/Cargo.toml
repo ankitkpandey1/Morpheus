@@ -1,8 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2024 Ankit Kumar Pandey <ankitkpandey1@gmail.com>
+
 [package]
 name = "morpheus-bench"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
 description = "Benchmarks and stress tests for Morpheus-Hybrid"
 
 [[bin]]
@@ -23,7 +28,7 @@ morpheus-runtime = { path = "../morpheus-runtime" }
 libc = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 parking_lot = { workspace = true }
 
 [dev-dependencies]

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2024 Ankit Kumar Pandey <ankitkpandey1@gmail.com>
+
 //! Python bindings for Morpheus-Hybrid
 //!
 //! This module provides Python bindings for the Morpheus runtime,

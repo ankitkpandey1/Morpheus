@@ -1,8 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2024 Ankit Kumar Pandey <ankitkpandey1@gmail.com>
+
 [package]
 name = "morpheus-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
 description = "Morpheus-Hybrid cooperative async runtime with kernel-guided yields"
 
 [features]
@@ -17,7 +22,7 @@ crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-memmap2 = "0.9"
+memmap2 = "0.9.9"
 
 # Optional tokio integration
 tokio = { workspace = true, optional = true }

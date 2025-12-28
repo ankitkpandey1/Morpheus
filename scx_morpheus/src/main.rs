@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2024 Ankit Kumar Pandey <ankitkpandey1@gmail.com>
+
 //! scx_morpheus - sched_ext BPF scheduler loader for Morpheus-Hybrid
 //!
 //! This binary loads the scx_morpheus BPF program into the kernel and

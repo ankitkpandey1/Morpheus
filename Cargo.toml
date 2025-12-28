@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Morpheus-Hybrid - Kernel-Guided Cooperative Async Runtime
+# Copyright (C) 2024 Ankit Kumar Pandey <ankitkpandey1@gmail.com>
+
 [workspace]
 resolver = "2"
 members = [
@@ -11,35 +16,35 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "GPL-2.0"
+license = "GPL-2.0-only"
 repository = "https://github.com/ankitkpandey1/Morpheus"
-authors = ["Ankit Pandey"]
+authors = ["Ankit Kumar Pandey <ankitkpandey1@gmail.com>"]
 
 [workspace.dependencies]
 # Shared
 morpheus-common = { path = "morpheus-common" }
 
-# BPF
-libbpf-rs = "0.24"
-libbpf-cargo = "0.24"
+# BPF - pinned to 0.24.x for stability with current kernel headers
+libbpf-rs = "0.24.8"
+libbpf-cargo = "0.24.8"
 
 # Core
-libc = "0.2"
-crossbeam = "0.8"
-parking_lot = "0.12"
+libc = "0.2.178"
+crossbeam = "0.8.4"
+parking_lot = "0.12.5"
 
 # Async
-tokio = { version = "1", features = ["rt", "sync", "macros"] }
-async-task = "4"
-futures-lite = "2"
+tokio = { version = "1.48.0", features = ["rt", "sync", "macros"] }
+async-task = "4.7.1"
+futures-lite = "2.6.1"
 
-# Python bindings
-pyo3 = { version = "0.22", features = ["extension-module"] }
+# Python bindings - pinned to 0.22.x for stability
+pyo3 = { version = "0.22.6", features = ["extension-module"] }
 
 # Utilities
-thiserror = "2"
-tracing = "0.1"
-clap = { version = "4", features = ["derive"] }
+thiserror = "2.0.17"
+tracing = "0.1.44"
+clap = { version = "4.5.53", features = ["derive"] }
 
 # Benchmarks
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.5.1", features = ["html_reports"] }
