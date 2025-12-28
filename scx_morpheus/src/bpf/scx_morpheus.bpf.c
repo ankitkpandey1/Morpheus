@@ -11,18 +11,22 @@
  * - Language-neutral: operates on worker threads, not async tasks
  * - Cooperative by default: only escalates when explicitly permitted
  * - Safe: respects critical sections and escapability flags
+ *
+ * Copyright (C) 2024 Ankit Kumar Pandey <ankitkpandey1@gmail.com>
  */
 
+/* Include vmlinux.h first - provides all kernel types */
 #include "vmlinux.h"
-#include <bpf/bpf_helpers.h>
-#include <bpf/bpf_tracing.h>
-#include <bpf/bpf_core_read.h>
+
+/* Include our sched_ext compatibility header */
+#include "compat.bpf.h"
 
 /* Error codes */
 #ifndef ENOMEM
 #define ENOMEM 12
 #endif
 
+/* Include shared types between kernel and userspace */
 #include "morpheus_shared.h"
 
 char _license[] SEC("license") = "GPL";
@@ -111,6 +115,9 @@ struct {
  */
 #define MORPHEUS_DSQ_ID 0
 
+/* User exit info for graceful shutdown */
+UEI_DEFINE(uei);
+
 /*
  * Helper: get current stats
  */
@@ -180,7 +187,7 @@ s32 BPF_STRUCT_OPS(morpheus_init_task, struct task_struct *p,
                    struct scx_init_task_args *args)
 {
     struct task_ctx *tctx;
-    u32 pid = p->pid;
+    u32 pid = BPF_CORE_READ(p, pid);
     u32 *worker_id_ptr;
 
     tctx = bpf_task_storage_get(&task_ctx_map, p,
@@ -298,7 +305,7 @@ void BPF_STRUCT_OPS(morpheus_tick, struct task_struct *p)
     struct morpheus_scb *scb;
     struct morpheus_stats *stats = get_stats();
     u64 now, delta, preempt_seq, last_ack_seq, deadline;
-    u32 is_critical, escapable;
+    u32 is_critical, escapable, tid;
 
     if (stats)
         __sync_fetch_and_add(&stats->ticks_total, 1);
@@ -322,10 +329,13 @@ void BPF_STRUCT_OPS(morpheus_tick, struct task_struct *p)
         /* Increment preempt_seq to signal yield request */
         preempt_seq = __sync_add_and_fetch(&scb->preempt_seq, 1);
 
+        /* Get TID for hint */
+        tid = BPF_CORE_READ(p, pid);
+
         /* Emit hint via ring buffer */
         deadline = now + grace_period_ns;
         emit_hint(tctx->worker_id, preempt_seq, MORPHEUS_HINT_BUDGET,
-                  p->pid, deadline);
+                  tid, deadline);
 
         /* === Gated Escalation Check === */
         escapable = __sync_fetch_and_add(&scb->escapable, 0);
@@ -349,7 +359,7 @@ void BPF_STRUCT_OPS(morpheus_tick, struct task_struct *p)
 
             if (debug_mode)
                 bpf_printk("morpheus: escalating worker %u (tid=%d, runtime=%llu)",
-                           tctx->worker_id, p->pid, tctx->runtime_ns);
+                           tctx->worker_id, tid, tctx->runtime_ns);
 
             /* Force preemption */
             scx_bpf_kick_cpu(scx_bpf_task_cpu(p), SCX_KICK_PREEMPT);
@@ -374,9 +384,6 @@ void BPF_STRUCT_OPS(morpheus_exit, struct scx_exit_info *ei)
 {
     UEI_RECORD(uei, ei);
 }
-
-/* Error recording for exit */
-UEI_DEFINE(uei);
 
 /*
  * Scheduler operations structure

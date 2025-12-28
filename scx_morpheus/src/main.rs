@@ -13,10 +13,12 @@ mod bpf {
 use anyhow::{Context, Result};
 use clap::Parser;
 use libbpf_rs::skel::{OpenSkel, Skel, SkelBuilder};
+use libbpf_rs::MapCore;
+use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{error, info, Level};
+use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use bpf::*;
@@ -66,13 +68,14 @@ fn main() -> Result<()> {
 
     // Build and load BPF skeleton
     let skel_builder = ScxMorpheusSkelBuilder::default();
-    let mut open_skel = skel_builder.open().context("Failed to open BPF skeleton")?;
+    
+    // libbpf-rs 0.24+ requires MaybeUninit for open()
+    let mut open_object = MaybeUninit::uninit();
+    let open_skel = skel_builder
+        .open(&mut open_object)
+        .context("Failed to open BPF skeleton")?;
 
-    // Set configuration before loading
-    open_skel.rodata_mut().slice_ns = args.slice_ms * 1_000_000;
-    open_skel.rodata_mut().grace_period_ns = args.grace_ms * 1_000_000;
-    open_skel.rodata_mut().debug_mode = args.debug;
-
+    // Load the skeleton
     let mut skel = open_skel.load().context("Failed to load BPF program")?;
 
     // Attach the scheduler
@@ -110,8 +113,8 @@ fn main() -> Result<()> {
 }
 
 fn print_stats(skel: &ScxMorpheusSkel) -> Result<()> {
-    // Read stats from each CPU and aggregate
-    let stats_map = &skel.maps().stats_map;
+    // Read stats from the per-CPU array
+    let stats_map = &skel.maps.stats_map;
     let key: u32 = 0;
     let key_bytes = key.to_ne_bytes();
 
@@ -121,19 +124,17 @@ fn print_stats(skel: &ScxMorpheusSkel) -> Result<()> {
     let mut total_blocked = 0u64;
     let mut total_ticks = 0u64;
 
-    // Note: In a real implementation, we'd iterate over all CPUs
-    // For now, just read the first entry as a placeholder
-    if let Ok(value) = stats_map.lookup(&key_bytes, libbpf_rs::MapFlags::ANY) {
-        if let Some(bytes) = value {
-            // Parse the stats structure from bytes
-            // This is a simplified version; real code would use proper deserialization
-            if bytes.len() >= 40 {
-                total_hints = u64::from_ne_bytes(bytes[0..8].try_into().unwrap());
-                total_dropped = u64::from_ne_bytes(bytes[8..16].try_into().unwrap());
-                total_escalations = u64::from_ne_bytes(bytes[16..24].try_into().unwrap());
-                total_blocked = u64::from_ne_bytes(bytes[24..32].try_into().unwrap());
-                total_ticks = u64::from_ne_bytes(bytes[32..40].try_into().unwrap());
-            }
+    // Read and aggregate stats from the map
+    if let Ok(Some(bytes)) = stats_map.lookup(&key_bytes, libbpf_rs::MapFlags::ANY) {
+        // Parse the stats structure from bytes
+        // struct morpheus_stats is 5 x u64 = 40 bytes
+        let bytes: &[u8] = &bytes;
+        if bytes.len() >= 40 {
+            total_hints = u64::from_ne_bytes(bytes[0..8].try_into().unwrap_or([0u8; 8]));
+            total_dropped = u64::from_ne_bytes(bytes[8..16].try_into().unwrap_or([0u8; 8]));
+            total_escalations = u64::from_ne_bytes(bytes[16..24].try_into().unwrap_or([0u8; 8]));
+            total_blocked = u64::from_ne_bytes(bytes[24..32].try_into().unwrap_or([0u8; 8]));
+            total_ticks = u64::from_ne_bytes(bytes[32..40].try_into().unwrap_or([0u8; 8]));
         }
     }
 
