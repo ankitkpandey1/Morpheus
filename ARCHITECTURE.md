@@ -91,6 +91,18 @@ stateDiagram-v2
 | `PRESSURED` | Hints received | Cooperative scheduling active |
 | `DEFENSIVE` | Hint loss detected | Eager voluntary yielding |
 
+### Yield Cause Ledger
+
+Tracks why the runtime last yielded, enabling debugging and observability:
+
+| Reason | Description |
+|--------|-------------|
+| `VOLUNTARY` | Task voluntarily yielded (e.g., await point) |
+| `HINT` | Response to kernel yield hint |
+| `BUDGET` | Time budget exhausted |
+| `DEFENSIVE` | Heuristic-triggered yield |
+| `ESCALATION_RECOVERY` | Yielded after escalation event |
+
 ---
 
 ## Build System
@@ -123,22 +135,28 @@ graph LR
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Cache Line 1 (Kernel → Runtime)                             │
+│ Cache Line 1 (Kernel → Runtime) - 64 bytes                  │
 ├─────────────────────────────────────────────────────────────┤
 │ preempt_seq (u64)        - Kernel increments to request yield│
 │ budget_remaining_ns (u64)- Remaining time budget (advisory) │
 │ kernel_pressure_level    - 0-100 pressure indicator         │
-│ worker_state             - Lifecycle state (enum)           │
+│ worker_state             - Lifecycle state (WorkerState)    │
+│ hint_loss_count          - Counter for dropped hints        │
+│ reserved1/2              - Future expansion                  │
 ├─────────────────────────────────────────────────────────────┤
-│ Cache Line 2 (Runtime → Kernel)                             │
+│ Cache Line 2 (Runtime → Kernel) - 64 bytes                  │
 ├─────────────────────────────────────────────────────────────┤
 │ is_in_critical_section   - 1 if in critical section         │
 │ escapable                - 1 if hard preemption allowed     │
 │ last_ack_seq             - Last acknowledged preempt_seq    │
 │ runtime_priority         - Advisory priority 0-1000         │
-│ last_yield_reason        - Why worker last yielded (enum)   │
+│ last_yield_reason        - Why worker last yielded (YieldReason) │
 │ escalation_policy        - Worker's escalation policy       │
+│ reservation_token        - Future: reservation coordination │
+│ reserved3/4              - Future expansion                  │
 └─────────────────────────────────────────────────────────────┘
+
+**Total size: 128 bytes (2 cache lines)**
 ```
 
 ### Global Pressure Aggregator
@@ -214,16 +232,21 @@ Morpheus/
 │       └── compat.bpf.h         # sched_ext macros
 │
 ├── morpheus-runtime/         # Rust runtime
-│   └── src/
-│       ├── lib.rs            # Public API
-│       ├── adapter.rs        # Language adapter trait
-│       ├── scb.rs            # SCB management
-│       ├── critical.rs       # Critical sections
-│       └── worker.rs         # Worker threads
+│   ├── src/
+│   │   ├── lib.rs            # Public API + checkpoint macro
+│   │   ├── adapter.rs        # Language adapter trait
+│   │   ├── executor.rs       # Task executor + yield_now()
+│   │   ├── scb.rs            # SCB management
+│   │   ├── critical.rs       # Critical sections
+│   │   ├── worker.rs         # Worker threads
+│   │   ├── metrics.rs        # Runtime metrics
+│   │   └── ringbuf.rs        # Ring buffer for hints
+│   └── tests/
+│       └── integration.rs    # Integration tests
 │
 ├── morpheus-py/              # Python bindings
 │
-└── morpheus-bench/           # Benchmarks
+└── morpheus-bench/           # Benchmarks + comparative methodology
 ```
 
 ---
@@ -249,6 +272,19 @@ See [NON_GOALS.md](NON_GOALS.md) for details:
 sudo apt install -y pkg-config libelf-dev clang llvm \
     linux-headers-$(uname -r) libbpf-dev bpftool
 ```
+
+---
+
+## Comparative Benchmark Methodology
+
+See [benchmark.md](benchmark.md) for detailed methodology and results:
+
+| Benchmark | Purpose | Key Metric |
+|-----------|---------|------------|
+| **Latency** | Operation timing distribution | p50/p95/p99 latency |
+| **Starvation** | Validates escalation need | Tail latency without Morpheus |
+| **Critical Section** | Protection overhead | % overhead vs unprotected |
+| **Checkpoint** | Fast-path cost | Sub-nanosecond overhead |
 
 ---
 

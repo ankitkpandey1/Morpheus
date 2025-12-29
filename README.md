@@ -20,7 +20,8 @@ Morpheus-Hybrid enables async runtimes (Rust, Python) to receive yield hints fro
 | **Scheduler Mode** | Observer-only (default, safest) or Enforced (opt-in) |
 | **Worker States** | INIT → REGISTERED → RUNNING → QUIESCING → DEAD |
 | **Escalation Policies** | NONE, THREAD_KICK, CGROUP_THROTTLE, HYBRID |
-| **Determinism Modes** | DETERMINISTIC, PRESSURED, DEFENSIVE |
+| **Runtime Modes** | DETERMINISTIC, PRESSURED, DEFENSIVE |
+| **Yield Cause Ledger** | Tracks yield reasons (Voluntary, Hint, Budget, etc.) |
 | **Language Adapters** | Abstract API preserving language semantics |
 
 ## Requirements
@@ -111,15 +112,26 @@ async def ffi_work():
 
 ## Benchmarks
 
+See [benchmark.md](benchmark.md) for comprehensive comparative methodology and results.
+
+**Key findings:**
+- Sub-nanosecond checkpoint overhead (~751 ps)
+- Stable 2 µs operation latency across configurations
+- Critical section protection adds only 0.50% overhead
+- Starvation recovery validation (p99 > 13 ms without Morpheus)
+
 ```bash
 # Starvation recovery test
 sudo ./target/release/starvation -n 4 --duration 10
 
-# Adversarial critical section test
+# Adversarial critical section test  
 sudo ./target/release/liar --critical-duration-ms 500
 
 # Latency distribution
 sudo ./target/release/latency --duration 30 --workers 4 --pressure
+
+# Criterion microbenchmark
+cd morpheus-bench && cargo bench
 ```
 
 ## Configuration
@@ -144,11 +156,23 @@ See [NON_GOALS.md](NON_GOALS.md) for features explicitly out of scope:
 - Bytecode-level preemption
 - Kernel-managed budgets
 
+## Testing
+
+```bash
+# Run integration tests
+cargo test -p morpheus-runtime
+cargo test -p morpheus-common
+
+# Run all tests
+cargo test --workspace
+```
+
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Detailed architecture with diagrams
-- [benchmark.md](benchmark.md) - Performance data and methodology
+- [benchmark.md](benchmark.md) - Comparative benchmark methodology & results
 - [NON_GOALS.md](NON_GOALS.md) - Architectural guardrails
+- [OPERATOR.md](OPERATOR.md) - Operator deployment guide
 
 ## License
 
