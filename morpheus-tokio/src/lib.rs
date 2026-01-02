@@ -32,13 +32,12 @@
 //! ```
 
 pub use morpheus_runtime::{
-    critical_section, checkpoint_sync, CriticalGuard, Error, Result,
-    ScbHandle, BpfMaps,
+    checkpoint_sync, critical_section, BpfMaps, CriticalGuard, Error, Result, ScbHandle,
 };
 
 pub use morpheus_common::{
-    HintReason, MorpheusHint, MorpheusScb, GlobalPressure,
-    SchedulerMode, WorkerState, EscalationPolicy, YieldReason, RuntimeMode,
+    EscalationPolicy, GlobalPressure, HintReason, MorpheusHint, MorpheusScb, RuntimeMode,
+    SchedulerMode, WorkerState, YieldReason,
 };
 
 /// Check for pending kernel yield requests and yield to the Tokio runtime if needed.
@@ -90,10 +89,10 @@ where
 {
     use std::pin::pin;
     use std::task::{Context, Poll};
-    
+
     let mut future = pin!(future);
     let mut interval = tokio::time::interval(check_interval);
-    
+
     std::future::poll_fn(|cx: &mut Context<'_>| {
         // Check for kernel yield
         if checkpoint_sync() {
@@ -101,13 +100,14 @@ where
             cx.waker().wake_by_ref();
             return Poll::Pending;
         }
-        
+
         // Try to advance the interval
         let _ = interval.poll_tick(cx);
-        
+
         // Poll the inner future
         future.as_mut().poll(cx)
-    }).await
+    })
+    .await
 }
 
 /// Builder for configuring Morpheus with Tokio.
@@ -173,7 +173,7 @@ mod tests {
         let builder = MorpheusTokioBuilder::new()
             .escapable(false)
             .check_interval_ms(10);
-        
+
         assert!(!builder.is_escapable());
         assert_eq!(builder.get_check_interval().as_millis(), 10);
     }

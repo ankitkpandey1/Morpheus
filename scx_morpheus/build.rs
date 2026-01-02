@@ -33,9 +33,9 @@ fn main() {
     SkeletonBuilder::new()
         .source(BPF_SRC)
         .clang_args([
-            &format!("-I{}", out_dir.display()),  // For generated vmlinux.h
-            "-Isrc/bpf",                           // For compat.bpf.h
-            "-I../morpheus-common/include",        // For morpheus_shared.h
+            &format!("-I{}", out_dir.display()), // For generated vmlinux.h
+            "-Isrc/bpf",                         // For compat.bpf.h
+            "-I../morpheus-common/include",      // For morpheus_shared.h
             "-Wno-compare-distinct-pointer-types",
             "-D__TARGET_ARCH_x86",
             "-g",
@@ -65,12 +65,14 @@ fn generate_vmlinux_h(output_path: &PathBuf) {
     match result {
         Ok(output) if output.status.success() => {
             // Write the generated header
-            fs::write(output_path, &output.stdout)
-                .expect("Failed to write vmlinux.h");
+            fs::write(output_path, &output.stdout).expect("Failed to write vmlinux.h");
             println!("cargo:warning=Generated vmlinux.h from kernel BTF");
         }
         Ok(output) => {
-            panic!("bpftool failed: {}", String::from_utf8_lossy(&output.stderr));
+            panic!(
+                "bpftool failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
         Err(e) => {
             panic!("Failed to run bpftool: {}. Install linux-tools-generic.", e);

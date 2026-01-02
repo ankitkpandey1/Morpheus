@@ -54,27 +54,21 @@ Morpheus-Hybrid bridges this gap using **sched_ext** (Linux 6.12+):
 ### Building
 
 ```bash
-# Install dependencies (Debian/Ubuntu)
-sudo apt install -y \
-    pkg-config \
-    libelf-dev \
-    clang \
-    llvm \
-    linux-headers-$(uname -r) \
-    libc6-dev-i386 \
-    gcc-multilib \
-    libbpf-dev \
-    bpftool
+# Install system dependencies (Debian/Ubuntu)
+sudo apt install -y pkg-config libelf-dev clang llvm linux-headers-$(uname -r) \
+    libc6-dev-i386 gcc-multilib libbpf-dev bpftool
 
-# Verify kernel sched_ext support
-cat /boot/config-$(uname -r) | grep SCHED_CLASS_EXT
-# Should output: CONFIG_SCHED_CLASS_EXT=y
-
-# Build all
+# 1. Build Rust components
 cargo build --release
 
-# Build Python module (optional)
-cd morpheus-py && maturin build --release
+# 2. Set up Python environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install maturin patchelf
+
+# 3. Build and install Python bindings
+cd morpheus-py
+maturin develop --release
 ```
 
 ### Running the Scheduler
@@ -120,6 +114,9 @@ import morpheus
 import asyncio
 
 async def heavy_computation():
+    # Register the worker thread with the scheduler
+    morpheus.init_worker()
+    
     for i in range(1_000_000):
         # ... work ...
         if i % 1000 == 0:

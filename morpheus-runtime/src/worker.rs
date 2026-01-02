@@ -40,7 +40,7 @@ pub fn current_worker_id() -> Option<u32> {
 
 /// Set the current thread's SCB (called during worker initialization)
 #[allow(dead_code)]
-pub(crate) fn set_current_scb(scb: Arc<ScbHandle>, worker_id: u32) {
+pub fn set_current_scb(scb: Arc<ScbHandle>, worker_id: u32) {
     CURRENT_SCB.with(|current| {
         *current.borrow_mut() = Some(scb);
     });

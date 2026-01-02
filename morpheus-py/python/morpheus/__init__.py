@@ -18,8 +18,10 @@ from .asyncio import (
 # Re-export native module functions if available
 try:
     from _morpheus import (
+        init_worker,
         checkpoint,
         yield_requested,
+        async_checkpoint,
         acknowledge_yield,
         pressure_level,
         budget_remaining_ns,
@@ -54,8 +56,10 @@ __all__ = [
     'MorpheusEventLoopPolicy',
     'install_morpheus_loop',
     # Native functions (when available)
+    'init_worker',
     'checkpoint',
     'yield_requested',
+    'async_checkpoint',
     'acknowledge_yield',
     'pressure_level',
     'budget_remaining_ns',

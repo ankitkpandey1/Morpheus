@@ -255,7 +255,29 @@ s32 BPF_STRUCT_OPS(morpheus_select_cpu, struct task_struct *p,
 
 **`scx_bpf_dispatch(p, dsq, slice, flags)`**: Places task `p` on dispatch queue `dsq` with time slice `slice`.
 
-#### 4. The Tick Handler (Core Logic)
+#### 4. Dynamic Registration (in `morpheus_running`)
+
+To support runtimes that spawn threads dynamically (like Python), the scheduler lazily checks for unregistered workers:
+```c
+void BPF_STRUCT_OPS(morpheus_running, struct task_struct *p)
+{
+    struct task_ctx *tctx = get_task_ctx(p);
+    if (!tctx) return;
+
+    // Lazy registration: Check map if not yet marked
+    if (!tctx->is_morpheus_worker) {
+        u32 pid = BPF_CORE_READ(p, pid);
+        u32 *worker_id = bpf_map_lookup_elem(&worker_tid_map, &pid);
+        if (worker_id) {
+            tctx->worker_id = *worker_id;
+            tctx->is_morpheus_worker = true;
+        }
+    }
+    // ...
+}
+```
+
+#### 5. The Tick Handler (Core Logic)
 
 The tick handler runs on every scheduler tick (~1-4ms) and implements the Morpheus protocol:
 
@@ -634,6 +656,7 @@ import morpheus
 import asyncio
 
 async def heavy_computation():
+    morpheus.init_worker()
     for i in range(1_000_000):
         # ... compute ...
         if i % 1000 == 0:

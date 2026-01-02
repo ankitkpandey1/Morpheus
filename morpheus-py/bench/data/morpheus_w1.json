@@ -1,0 +1,10 @@
+{
+  "mode": "morpheus",
+  "workers": 1,
+  "duration": 10,
+  "latencies_us": [
+    33.879999591590604
+  ],
+  "total_work_units": 42274,
+  "throughput": 4227.4
+}

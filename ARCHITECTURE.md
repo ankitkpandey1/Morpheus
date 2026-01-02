@@ -57,7 +57,7 @@ Observer mode is the safest choice for production. Enforced mode requires explic
 ```mermaid
 stateDiagram-v2
     [*] --> INIT
-    INIT --> REGISTERED: register_tid()
+    INIT --> REGISTERED: register_tid() (Dynamic)
     REGISTERED --> RUNNING: start_execution()
     RUNNING --> QUIESCING: shutdown()
     QUIESCING --> DEAD: cleanup()

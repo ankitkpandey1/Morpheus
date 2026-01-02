@@ -1,0 +1,10 @@
+{
+  "mode": "blocking",
+  "workers": 4,
+  "duration": 10,
+  "latencies_us": [
+    39.32999970857054
+  ],
+  "total_work_units": 199549,
+  "throughput": 19954.9
+}

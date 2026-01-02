@@ -66,17 +66,17 @@ pub mod runtime;
 pub mod scb;
 pub mod worker;
 
+pub use adapter::{rust_adapter, LanguageAdapter, RustAdapter};
+pub use bpf_maps::BpfMaps;
 pub use critical::{critical_section, CriticalGuard};
 pub use error::{Error, Result};
 pub use runtime::{Builder, Runtime};
 pub use scb::ScbHandle;
-pub use bpf_maps::BpfMaps;
-pub use adapter::{LanguageAdapter, RustAdapter, rust_adapter};
 
 /// Re-export common types including new architectural enums
 pub use morpheus_common::{
-    HintReason, MorpheusHint, MorpheusScb, GlobalPressure,
-    SchedulerMode, WorkerState, EscalationPolicy, YieldReason, RuntimeMode,
+    EscalationPolicy, GlobalPressure, HintReason, MorpheusHint, MorpheusScb, RuntimeMode,
+    SchedulerMode, WorkerState, YieldReason,
 };
 
 /// Check for pending kernel yield requests and yield if needed.

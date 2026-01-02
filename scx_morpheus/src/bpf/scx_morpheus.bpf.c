@@ -373,8 +373,19 @@ void BPF_STRUCT_OPS(morpheus_running, struct task_struct *p)
 {
     struct task_ctx *tctx = get_task_ctx(p);
 
-    if (tctx)
+    if (tctx) {
+        /* Delta #5: Dynamic Registration Support */
+        if (!tctx->is_morpheus_worker) {
+            u32 pid = BPF_CORE_READ(p, pid);
+            u32 *worker_id_ptr = bpf_map_lookup_elem(&worker_tid_map, &pid);
+            if (worker_id_ptr) {
+                tctx->worker_id = *worker_id_ptr;
+                tctx->is_morpheus_worker = true;
+            }
+        }
+
         tctx->last_tick_ns = bpf_ktime_get_ns();
+    }
 }
 
 void BPF_STRUCT_OPS(morpheus_stopping, struct task_struct *p, bool runnable)
