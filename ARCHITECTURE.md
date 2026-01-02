@@ -160,15 +160,15 @@ graph LR
 ```
 
 ### Global Pressure Aggregator
-
-System-wide pressure signals for voluntary yield eagerness:
-
+ 
+System-wide pressure signals for voluntary yield eagerness. Populated by userspace agent (`scx_morpheus`) reading from `/proc/pressure/*` (PSI) and `/proc/loadavg`.
+ 
 ```c
 struct morpheus_global_pressure {
-    __u32 cpu_pressure_pct;     // CPU pressure 0-100 (PSI-derived)
-    __u32 io_pressure_pct;      // I/O pressure 0-100
-    __u32 memory_pressure_pct;  // Memory pressure 0-100
-    __u32 runqueue_depth;       // Aggregate runqueue depth
+    __u32 cpu_pressure_pct;     // CPU pressure 0-100 (from PSI avg10)
+    __u32 io_pressure_pct;      // I/O pressure 0-100 (from PSI avg10)
+    __u32 memory_pressure_pct;  // Memory pressure 0-100 (from PSI avg10)
+    __u32 runqueue_depth;       // Aggregate runqueue depth (from loadavg)
 };
 ```
 
@@ -237,12 +237,17 @@ Morpheus/
 │   │   ├── adapter.rs        # Language adapter trait
 │   │   ├── executor.rs       # Task executor + yield_now()
 │   │   ├── scb.rs            # SCB management
+│   │   ├── bpf_maps.rs       # BPF map interactions (worker registration)
 │   │   ├── critical.rs       # Critical sections
 │   │   ├── worker.rs         # Worker threads
 │   │   ├── metrics.rs        # Runtime metrics
 │   │   └── ringbuf.rs        # Ring buffer for hints
 │   └── tests/
-│       └── integration.rs    # Integration tests
+│       ├── integration.rs    # Runtime integration tests
+│       └── e2e_kernel.rs     # E2E kernel integration tests
+│
+├── morpheus-tokio/           # Tokio runtime integration
+│   └── src/lib.rs            # Checkpoint macro + yield helpers
 │
 ├── morpheus-py/              # Python bindings
 │
