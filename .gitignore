@@ -1,19 +1,14 @@
-/target
-*.pyc
-__pycache__/
-*.so
-*.egg-info/
-.eggs/
-dist/
-build/
-*.whl
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Binaries
+target/
+**/*.so
+**/*.pyc
+**/__pycache__/
 
-# BPF build artifacts
-*.o
-*.skel.rs
+# Benchmarks
+*.log
+*.pid
+morpheus-py/bench/data/*.json
+morpheus-py/bench/plots/*.png
+.venv/
+.env

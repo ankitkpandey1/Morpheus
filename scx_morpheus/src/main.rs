@@ -36,6 +36,13 @@ struct MorpheusEscalationEvent {
     timestamp: u64,
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct MorpheusConfig {
+    slice_ns: u64,
+    grace_period_ns: u64,
+}
+
 struct PenaltyManager {
     // pid -> (original_quota, expiration_time)
     active_penalties: HashMap<u32, (String, std::time::Instant)>,
@@ -205,11 +212,15 @@ fn main() -> Result<()> {
             if let Err(e) = update_global_pressure(&skel) {
                 tracing::warn!("Failed to update pressure: {}", e);
             }
+            if let Err(e) = adaptive_tune(&skel, args.slice_ms * 1_000_000, args.grace_ms * 1_000_000) {
+                tracing::warn!("Failed to auto-tune: {}", e);
+            }
             print_stats(&skel)?;
         } else {
             std::thread::sleep(Duration::from_secs(1));
             // Still update pressure even if stats disabled
             let _ = update_global_pressure(&skel);
+            let _ = adaptive_tune(&skel, args.slice_ms * 1_000_000, args.grace_ms * 1_000_000);
         }
     }
 
@@ -247,6 +258,42 @@ fn print_stats(skel: &ScxMorpheusSkel) -> Result<()> {
         "stats: ticks={} hints={} dropped={} escalations={} blocked={}",
         total_ticks, total_hints, total_dropped, total_escalations, total_blocked
     );
+
+    Ok(())
+}
+
+fn adaptive_tune(skel: &ScxMorpheusSkel, default_slice_ns: u64, default_grace_ns: u64) -> Result<()> {
+    let num_cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as u32;
+    let runqueue_depth = read_runqueue_depth().unwrap_or(0);
+
+    // Adaptive Slicing Logic
+    let new_slice_ns = if runqueue_depth > num_cpus * 2 {
+        // High load: prioritize responsiveness
+        2_000_000 // 2ms
+    } else if runqueue_depth < num_cpus {
+        // Low load: prioritize throughput (fewer yields)
+        10_000_000 // 10ms
+    } else {
+        // Moderate load: default
+        default_slice_ns
+    };
+
+    let config = MorpheusConfig {
+        slice_ns: new_slice_ns,
+        grace_period_ns: default_grace_ns,
+    };
+
+    let key = 0u32.to_ne_bytes();
+    let val_bytes = unsafe {
+        std::slice::from_raw_parts(
+            &config as *const _ as *const u8,
+            std::mem::size_of::<MorpheusConfig>(),
+        )
+    };
+
+    skel.maps.config_map
+        .update(&key, val_bytes, libbpf_rs::MapFlags::ANY)
+        .context("Failed to update config_map")?;
 
     Ok(())
 }

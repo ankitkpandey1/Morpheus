@@ -21,7 +21,7 @@ try:
         init_worker,
         checkpoint,
         yield_requested,
-        async_checkpoint,
+        yield_now_async,
         acknowledge_yield,
         pressure_level,
         budget_remaining_ns,
@@ -71,3 +71,13 @@ __all__ = [
     'exit_critical_section',
     'get_stats',
 ]
+
+async def async_checkpoint():
+    """
+    Async checkpoint - await this to yield to the event loop if kernel requests.
+    
+    This function is optimized to avoid allocation overhead when no yield
+    is requested (the common case).
+    """
+    if checkpoint():
+        await yield_now_async()
