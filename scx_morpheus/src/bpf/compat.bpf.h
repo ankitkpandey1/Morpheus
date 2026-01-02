@@ -12,6 +12,67 @@
 #ifndef __SCX_COMPAT_BPF_H
 #define __SCX_COMPAT_BPF_H
 
+/* 
+ * Ensure basic types are defined before including libbpf headers.
+ * This handles cases where vmlinux.h doesn't export them as expected
+ * by bpf_helpers.h in some environments (e.g. WSL2).
+ */
+#ifndef __u64
+typedef unsigned long long __u64;
+#endif
+#ifndef __u32
+typedef unsigned int __u32;
+#endif
+#ifndef __u16
+typedef unsigned short __u16;
+#endif
+#ifndef __u8
+typedef unsigned char __u8;
+#endif
+#ifndef __s64
+typedef long long __s64;
+#endif
+#ifndef __s32
+typedef int __s32;
+#endif
+#ifndef __be32
+typedef __u32 __be32;
+#endif
+#ifndef __be16
+typedef __u16 __be16;
+#endif
+#ifndef __wsum
+typedef __u32 __wsum;
+#endif
+
+/* Non-underscore types used by kernel headers */
+#ifndef u64
+typedef __u64 u64;
+#endif
+#ifndef u32
+typedef __u32 u32;
+#endif
+#ifndef u16
+typedef __u16 u16;
+#endif
+#ifndef u8
+typedef __u8 u8;
+#endif
+#ifndef s32
+typedef int s32;
+#endif
+#ifndef s64
+typedef long long s64;
+#endif
+#ifndef bool
+typedef _Bool bool;
+#define true 1
+#define false 0
+#endif
+#ifndef pid_t
+typedef int pid_t;
+#endif
+
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>

@@ -272,4 +272,3 @@ struct morpheus_escalation_event {
 };
 
 #endif /* __MORPHEUS_SHARED_H */
-```
