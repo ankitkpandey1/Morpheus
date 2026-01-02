@@ -56,6 +56,7 @@
 //! ```
 
 pub mod adapter;
+pub mod bpf_maps;
 pub mod critical;
 pub mod error;
 pub mod executor;
@@ -69,6 +70,7 @@ pub use critical::{critical_section, CriticalGuard};
 pub use error::{Error, Result};
 pub use runtime::{Builder, Runtime};
 pub use scb::ScbHandle;
+pub use bpf_maps::BpfMaps;
 pub use adapter::{LanguageAdapter, RustAdapter, rust_adapter};
 
 /// Re-export common types including new architectural enums

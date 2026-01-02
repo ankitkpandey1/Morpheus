@@ -46,6 +46,10 @@ struct Args {
     /// Print stats every N seconds (0 to disable)
     #[arg(long, default_value_t = 5)]
     stats_interval: u64,
+
+    /// Pin BPF maps to /sys/fs/bpf/morpheus for runtime access
+    #[arg(long)]
+    pin_maps: bool,
 }
 
 fn main() -> Result<()> {
@@ -82,6 +86,28 @@ fn main() -> Result<()> {
     skel.attach().context("Failed to attach sched_ext ops")?;
 
     info!("scx_morpheus attached successfully");
+
+    // Pin maps if requested (enables runtime access)
+    if args.pin_maps {
+        let pin_dir = "/sys/fs/bpf/morpheus";
+        std::fs::create_dir_all(pin_dir).context("Failed to create pin directory")?;
+
+        let tid_map_path = format!("{}/worker_tid_map", pin_dir);
+        let scb_map_path = format!("{}/scb_map", pin_dir);
+
+        skel.maps
+            .worker_tid_map
+            .pin(&tid_map_path)
+            .context("Failed to pin worker_tid_map")?;
+        skel.maps
+            .scb_map
+            .pin(&scb_map_path)
+            .context("Failed to pin scb_map")?;
+
+        info!("BPF maps pinned to {}", pin_dir);
+        info!("  worker_tid_map: {}", tid_map_path);
+        info!("  scb_map: {}", scb_map_path);
+    }
 
     // Set up graceful shutdown
     let running = Arc::new(AtomicBool::new(true));
