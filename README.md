@@ -2,7 +2,25 @@
 
 **Kernel-Guided Cooperative Async Runtime with Opt-In Escalation**
 
-Morpheus-Hybrid enables async runtimes (Rust, Python) to receive yield hints from the Linux kernel scheduler and respond at safe points. The kernel only forces preemption on workers that have explicitly opted in and ignored hints.
+## Why Morpheus? (The Problem)
+
+Modern async runtimes (Tokio, asyncio) and the Linux kernel operate in silos.
+- **The Runtime** knows *when* it's safe to yield (e.g., not holding a lock/GIL) but doesn't know *if* the system is overloaded.
+- **The Kernel** knows *if* the system is overloaded (runqueue pressure) but doesn't know *when* it's safe to preempt without causing priority inversion or lock contention.
+
+This disconnection leads to:
+1.  **Tail Latency Spikes**: The kernel preempts a worker holding a lock/GIL, stalling all other threads.
+2.  **Throughput Loss**: Runtimes yield too aggressively (wasting CPU) or too lazily (starving others).
+3.  **Non-Determinism**: Performance varies wildly under load.
+
+## The Solution
+
+Morpheus-Hybrid bridges this gap using **sched_ext** (Linux 6.12+):
+1.  **Kernel-Guided**: The kernel monitors pressure and *hints* to the runtime when to yield ("Please yield soon").
+2.  **Runtime-Controlled**: The runtime yields only at safe "checkpoints" (await points), preventing lock-holding preemption.
+3.  **Opt-In Enforcement**: If a worker ignores hints for too long, the kernel *escalates* (force-preempts or throttles) but only if the worker has explicitly signaled it is "escapable" (safe to preempt).
+
+**Result**: Deterministic tail latency under high load, with the safety of cooperative scheduling and the robustness of preemptive kernels.
 
 ## Features
 
@@ -36,27 +54,21 @@ Morpheus-Hybrid enables async runtimes (Rust, Python) to receive yield hints fro
 ### Building
 
 ```bash
-# Install dependencies (Debian/Ubuntu)
-sudo apt install -y \
-    pkg-config \
-    libelf-dev \
-    clang \
-    llvm \
-    linux-headers-$(uname -r) \
-    libc6-dev-i386 \
-    gcc-multilib \
-    libbpf-dev \
-    bpftool
+# Install system dependencies (Debian/Ubuntu)
+sudo apt install -y pkg-config libelf-dev clang llvm linux-headers-$(uname -r) \
+    libc6-dev-i386 gcc-multilib libbpf-dev bpftool
 
-# Verify kernel sched_ext support
-cat /boot/config-$(uname -r) | grep SCHED_CLASS_EXT
-# Should output: CONFIG_SCHED_CLASS_EXT=y
-
-# Build all
+# 1. Build Rust components
 cargo build --release
 
-# Build Python module (optional)
-cd morpheus-py && maturin build --release
+# 2. Set up Python environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install maturin patchelf
+
+# 3. Build and install Python bindings
+cd morpheus-py
+maturin develop --release
 ```
 
 ### Running the Scheduler
@@ -65,6 +77,9 @@ cd morpheus-py && maturin build --release
 # Load the sched_ext scheduler (requires root)
 # Observer mode (default) - collects metrics, emits hints, no enforcement
 sudo ./target/release/scx_morpheus --slice-ms 5 --grace-ms 100 --debug
+
+# Enforcement mode (Opt-in) - enables cgroup throttling and CPU kicks
+sudo ./target/release/scx_morpheus --enforce
 ```
 
 ### Rust Usage
@@ -99,6 +114,9 @@ import morpheus
 import asyncio
 
 async def heavy_computation():
+    # Register the worker thread with the scheduler
+    morpheus.init_worker()
+    
     for i in range(1_000_000):
         # ... work ...
         if i % 1000 == 0:
@@ -108,6 +126,9 @@ async def ffi_work():
     with morpheus.critical():
         # Protected from forced preemption
         pass
+
+# Run the FastAPI example
+# python -m morpheus.run -m uvicorn examples.fastapi_app:app --loop asyncio --port 8000
 ```
 
 ## Benchmarks

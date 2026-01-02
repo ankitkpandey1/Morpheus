@@ -35,7 +35,7 @@ Repository = "https://github.com/ankitkpandey1/Morpheus"
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-module-name = "morpheus_hybrid.morpheus"
+module-name = "_morpheus"
 
 [project.optional-dependencies]
 dev = [

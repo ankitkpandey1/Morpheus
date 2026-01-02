@@ -11,7 +11,7 @@ repository.workspace = true
 description = "Python bindings for Morpheus-Hybrid cooperative async runtime"
 
 [lib]
-name = "morpheus"
+name = "_morpheus"
 crate-type = ["cdylib"]
 
 # Maturin configuration

@@ -255,7 +255,29 @@ s32 BPF_STRUCT_OPS(morpheus_select_cpu, struct task_struct *p,
 
 **`scx_bpf_dispatch(p, dsq, slice, flags)`**: Places task `p` on dispatch queue `dsq` with time slice `slice`.
 
-#### 4. The Tick Handler (Core Logic)
+#### 4. Dynamic Registration (in `morpheus_running`)
+
+To support runtimes that spawn threads dynamically (like Python), the scheduler lazily checks for unregistered workers:
+```c
+void BPF_STRUCT_OPS(morpheus_running, struct task_struct *p)
+{
+    struct task_ctx *tctx = get_task_ctx(p);
+    if (!tctx) return;
+
+    // Lazy registration: Check map if not yet marked
+    if (!tctx->is_morpheus_worker) {
+        u32 pid = BPF_CORE_READ(p, pid);
+        u32 *worker_id = bpf_map_lookup_elem(&worker_tid_map, &pid);
+        if (worker_id) {
+            tctx->worker_id = *worker_id;
+            tctx->is_morpheus_worker = true;
+        }
+    }
+    // ...
+}
+```
+
+#### 5. The Tick Handler (Core Logic)
 
 The tick handler runs on every scheduler tick (~1-4ms) and implements the Morpheus protocol:
 
@@ -301,7 +323,10 @@ void BPF_STRUCT_OPS(morpheus_tick, struct task_struct *p)
             last_ack_seq < preempt_seq &&
             tctx->runtime_ns > (slice_ns + grace_period_ns)) {
             
-            // Force preemption
+            // 1. Emit escalation event (for userspace cgroup throttling)
+            emit_escalation_event(tctx->worker_id, pid, SeverityPenalty);
+
+            // 2. Force preemption (kick CPU)
             scx_bpf_kick_cpu(scx_bpf_task_cpu(p), SCX_KICK_PREEMPT);
         }
     }
@@ -332,8 +357,11 @@ let skel_builder = ScxMorpheusSkelBuilder::default();
 let mut open_skel = skel_builder.open()?;
 
 // Set configuration BEFORE loading (read-only data section)
-open_skel.rodata_mut().slice_ns = args.slice_ms * 1_000_000;
-open_skel.rodata_mut().grace_period_ns = args.grace_ms * 1_000_000;
+if args.enforce {
+    open_skel.maps.rodata_data.scheduler_mode = 1;
+}
+open_skel.maps.rodata_data.slice_ns = args.slice_ms * 1_000_000;
+open_skel.maps.rodata_data.grace_period_ns = args.grace_ms * 1_000_000;
 
 // Load BPF programs into kernel
 let mut skel = open_skel.load()?;
@@ -343,6 +371,17 @@ skel.attach()?;
 ```
 
 The skeleton is auto-generated at build time by `libbpf-cargo` from the BPF object file.
+
+### Userspace Penalty Manager
+
+The `scx_morpheus` binary runs a dedicated thread to handle "Cgroup Throttling" requests from the kernel, as BPF cannot directly write to cgroup files.
+
+1. **Kernel (BPF)**: Detects a violation and emits an `EscalationEvent` to a ring buffer.
+2. **Userspace (`scx_morpheus`)**:
+   - Polls the ring buffer.
+   - Maps the PID to its cgroup path (e.g., `/sys/fs/cgroup/...`).
+   - Writes to `cpu.max` to throttle the cgroup (e.g., 1% quota).
+   - Restores the original quota after a fixed penalty duration (default 5s).
 
 ---
 
@@ -617,6 +656,7 @@ import morpheus
 import asyncio
 
 async def heavy_computation():
+    morpheus.init_worker()
     for i in range(1_000_000):
         # ... compute ...
         if i % 1000 == 0:

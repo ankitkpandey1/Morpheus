@@ -48,7 +48,7 @@ The scheduler operates in one of two modes:
 | Mode | Description |
 |------|-------------|
 | `OBSERVER_ONLY` | Collect data, emit hints, **no enforcement** (default) |
-| `ENFORCED` | Full escalation + CPU kicks when workers ignore hints |
+| `ENFORCED` | Full escalation + CPU kicks when workers ignore hints (Enabled via `--enforce`) |
 
 Observer mode is the safest choice for production. Enforced mode requires explicit operator opt-in.
 
@@ -57,7 +57,7 @@ Observer mode is the safest choice for production. Enforced mode requires explic
 ```mermaid
 stateDiagram-v2
     [*] --> INIT
-    INIT --> REGISTERED: register_tid()
+    INIT --> REGISTERED: register_tid() (Dynamic)
     REGISTERED --> RUNNING: start_execution()
     RUNNING --> QUIESCING: shutdown()
     QUIESCING --> DEAD: cleanup()

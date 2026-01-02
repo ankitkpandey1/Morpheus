@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#![allow(clippy::useless_conversion)]
 // Copyright (C) 2024 Ankit Kumar Pandey <ankitkpandey1@gmail.com>
 
 //! Python bindings for Morpheus-Hybrid
@@ -32,6 +33,7 @@ use morpheus_runtime::{self as rt, critical::in_critical_section};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 /// Check for pending kernel yield requests.
 ///
@@ -69,11 +71,11 @@ fn yield_requested() -> bool {
 #[pyfunction]
 fn async_checkpoint(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     // Import asyncio.sleep(0) to properly yield to the event loop
-    let asyncio = py.import("asyncio")?;
-    
+    let asyncio = py.import_bound("asyncio")?;
+
     // Check if yield is requested
     let should_yield = rt::checkpoint_sync();
-    
+
     if should_yield {
         // Acknowledge the yield
         if let Some(scb) = rt::worker::try_current_scb() {
@@ -258,9 +260,48 @@ fn is_defensive_mode() -> bool {
         .unwrap_or(false)
 }
 
+/// Initialize the current thread as a Morpheus worker.
+#[pyfunction]
+#[pyo3(signature = (worker_id=0, escapable=false))]
+fn init_worker(worker_id: u32, escapable: bool) -> PyResult<()> {
+    // 1. Connect to pinned maps
+    // Assuming standard location: /sys/fs/bpf/morpheus
+    let tid_map_path = "/sys/fs/bpf/morpheus/worker_tid_map";
+    let scb_map_path = "/sys/fs/bpf/morpheus/scb_map";
+
+    let maps = rt::BpfMaps::from_pinned_paths(tid_map_path, scb_map_path)
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to open BPF maps: {}", e)))?;
+
+    // 2. Register current thread
+    let tid = rt::worker::get_tid();
+    maps.register_worker(tid, worker_id)
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to register worker: {}", e)))?;
+
+    // 3. Map SCB
+    // We need to keep BpfMaps alive? BpfMaps owns FDs.
+    // ScbHandle::new usually takes BorrowedFd.
+    // But set_current_scb takes Arc<ScbHandle>.
+    // ScbHandle implementation details:
+    // We need to look at ScbHandle::new.
+    // Wait, ScbHandle::new maps memory. It doesn't keep the FD open?
+    // Let's check scb.rs if needed.
+    // Assuming ScbHandle::new works with BorrowedFd and maps it via mmap (dup if needed).
+
+    let scb_handle = unsafe {
+        rt::scb::ScbHandle::new(maps.scb_map_fd(), worker_id, escapable)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to map SCB: {}", e)))?
+    };
+
+    // 4. Set thread-local context
+    rt::worker::set_current_scb(Arc::new(scb_handle), worker_id);
+
+    Ok(())
+}
+
 /// Morpheus Python module
 #[pymodule]
-fn morpheus(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _morpheus(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(init_worker, m)?)?;
     m.add_function(wrap_pyfunction!(checkpoint, m)?)?;
     m.add_function(wrap_pyfunction!(yield_requested, m)?)?;
     m.add_function(wrap_pyfunction!(async_checkpoint, m)?)?;

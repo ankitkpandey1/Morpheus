@@ -40,7 +40,7 @@ pub enum SchedulerMode {
     /// This is the safest mode and the default.
     #[default]
     ObserverOnly = 0,
-    
+
     /// Enforced: full escalation + CPU kicks enabled.
     /// Requires explicit operator opt-in.
     Enforced = 1,
@@ -69,16 +69,16 @@ pub enum WorkerState {
     /// Worker allocated but not yet registered with kernel
     #[default]
     Init = 0,
-    
+
     /// Worker registered with kernel, TID known
     Registered = 1,
-    
+
     /// Worker actively executing tasks
     Running = 2,
-    
+
     /// Worker shutting down, no new tasks accepted
     Quiescing = 3,
-    
+
     /// Worker terminated, ready for cleanup
     Dead = 4,
 }
@@ -89,7 +89,7 @@ impl WorkerState {
     pub fn can_receive_hints(self) -> bool {
         matches!(self, WorkerState::Running)
     }
-    
+
     /// Check if escalation is allowed for this worker
     #[inline]
     pub fn can_escalate(self) -> bool {
@@ -99,7 +99,7 @@ impl WorkerState {
 
 impl TryFrom<u32> for WorkerState {
     type Error = ();
-    
+
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(WorkerState::Init),
@@ -126,20 +126,20 @@ pub enum EscalationPolicy {
     /// No enforcement - hints only
     #[default]
     None = 0,
-    
+
     /// Kick the CPU to force reschedule
     ThreadKick = 1,
-    
+
     /// Apply cgroup throttling
     CgroupThrottle = 2,
-    
+
     /// Combine kick + throttle (most aggressive)
     Hybrid = 3,
 }
 
 impl TryFrom<u32> for EscalationPolicy {
     type Error = ();
-    
+
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(EscalationPolicy::None),
@@ -164,26 +164,26 @@ pub enum YieldReason {
     /// No yield yet or unknown
     #[default]
     None = 0,
-    
+
     /// Yielded in response to kernel hint
     Hint = 1,
-    
+
     /// Yielded at explicit checkpoint
     Checkpoint = 2,
-    
+
     /// Yielded due to budget exhaustion
     Budget = 3,
-    
+
     /// Defensive yield (e.g., heuristic triggered)
     Defensive = 4,
-    
+
     /// Recovery after escalation
     EscalationRecovery = 5,
 }
 
 impl TryFrom<u32> for YieldReason {
     type Error = ();
-    
+
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(YieldReason::None),
@@ -216,10 +216,10 @@ pub enum RuntimeMode {
     /// No kernel hints active - fully deterministic behavior
     #[default]
     Deterministic = 0,
-    
+
     /// Kernel hints being received - cooperative scheduling active
     Pressured = 1,
-    
+
     /// Hint loss or errors detected - defensive yielding enabled
     Defensive = 2,
 }
@@ -299,7 +299,7 @@ pub struct MorpheusScb {
 
     /// Worker lifecycle state (WorkerState enum)
     pub worker_state: AtomicU32,
-    
+
     _reserved0: [u64; 5],
 
     // === Cache Line 2: Runtime → Kernel ===
@@ -318,12 +318,12 @@ pub struct MorpheusScb {
 
     /// Last yield reason (YieldReason enum) - for observability
     pub last_yield_reason: AtomicU32,
-    
+
     _reserved1: [u64; 1],
-    
+
     /// Escalation policy for this worker
     pub escalation_policy: AtomicU32,
-    
+
     _pad: u32,
 }
 
@@ -380,13 +380,13 @@ impl Default for MorpheusScb {
 pub struct GlobalPressure {
     /// CPU pressure percentage (0-100, PSI-derived)
     pub cpu_pressure_pct: AtomicU32,
-    
+
     /// I/O pressure percentage (0-100, PSI-derived)
     pub io_pressure_pct: AtomicU32,
-    
+
     /// Memory pressure percentage (0-100, PSI-derived)
     pub memory_pressure_pct: AtomicU32,
-    
+
     /// Current runqueue depth (aggregate across CPUs)
     pub runqueue_depth: AtomicU32,
 }
@@ -401,12 +401,12 @@ impl GlobalPressure {
             runqueue_depth: AtomicU32::new(0),
         }
     }
-    
+
     /// Check if system is under significant pressure
     #[inline]
     pub fn is_pressured(&self) -> bool {
         use core::sync::atomic::Ordering::Relaxed;
-        self.cpu_pressure_pct.load(Relaxed) > 50 
+        self.cpu_pressure_pct.load(Relaxed) > 50
             || self.io_pressure_pct.load(Relaxed) > 50
             || self.memory_pressure_pct.load(Relaxed) > 50
     }
@@ -471,7 +471,7 @@ pub mod map_names {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::mem::{offset_of, size_of, align_of};
+    use core::mem::{align_of, offset_of, size_of};
 
     #[test]
     fn test_scb_size_and_alignment() {
@@ -486,10 +486,13 @@ mod tests {
         assert_eq!(offset_of!(MorpheusScb, budget_remaining_ns), 8);
         assert_eq!(offset_of!(MorpheusScb, kernel_pressure_level), 16);
         assert_eq!(offset_of!(MorpheusScb, worker_state), 20);
-        
+
         // Cache Line 2: Runtime -> Kernel (bytes 64-127)
-        assert_eq!(offset_of!(MorpheusScb, is_in_critical_section), 64, 
-                   "Cache line 2 must start at offset 64");
+        assert_eq!(
+            offset_of!(MorpheusScb, is_in_critical_section),
+            64,
+            "Cache line 2 must start at offset 64"
+        );
         assert_eq!(offset_of!(MorpheusScb, escapable), 68);
         assert_eq!(offset_of!(MorpheusScb, last_ack_seq), 72);
         assert_eq!(offset_of!(MorpheusScb, runtime_priority), 80);
@@ -516,7 +519,7 @@ mod tests {
         assert_eq!(HintReason::try_from(5), Err(()));
         assert_eq!(HintReason::try_from(0), Err(()));
     }
-    
+
     #[test]
     fn test_worker_state_transitions() {
         assert!(WorkerState::Running.can_receive_hints());
@@ -524,58 +527,63 @@ mod tests {
         assert!(!WorkerState::Registered.can_receive_hints());
         assert!(!WorkerState::Quiescing.can_receive_hints());
         assert!(!WorkerState::Dead.can_receive_hints());
-        
+
         assert!(WorkerState::Running.can_escalate());
         assert!(!WorkerState::Init.can_escalate());
         assert!(!WorkerState::Quiescing.can_escalate());
     }
-    
+
     #[test]
     fn test_runtime_mode() {
         assert!(!RuntimeMode::Deterministic.should_yield_eagerly());
         assert!(!RuntimeMode::Pressured.should_yield_eagerly());
         assert!(RuntimeMode::Defensive.should_yield_eagerly());
     }
-    
+
     #[test]
     fn test_scheduler_mode_defaults() {
         assert_eq!(SchedulerMode::default(), SchedulerMode::ObserverOnly);
     }
-    
+
     #[test]
     fn test_escalation_policy_defaults() {
         assert_eq!(EscalationPolicy::default(), EscalationPolicy::None);
     }
-    
+
     #[test]
     fn test_scb_new_defaults() {
         let scb_escapable = MorpheusScb::new(true);
         let scb_not_escapable = MorpheusScb::new(false);
-        
+
         use core::sync::atomic::Ordering;
         assert_eq!(scb_escapable.escapable.load(Ordering::Relaxed), 1);
         assert_eq!(scb_not_escapable.escapable.load(Ordering::Relaxed), 0);
-        assert_eq!(scb_escapable.worker_state.load(Ordering::Relaxed), WorkerState::Init as u32);
-        assert_eq!(scb_escapable.escalation_policy.load(Ordering::Relaxed), EscalationPolicy::None as u32);
+        assert_eq!(
+            scb_escapable.worker_state.load(Ordering::Relaxed),
+            WorkerState::Init as u32
+        );
+        assert_eq!(
+            scb_escapable.escalation_policy.load(Ordering::Relaxed),
+            EscalationPolicy::None as u32
+        );
     }
-    
+
     #[test]
     fn test_global_pressure_is_pressured() {
         use core::sync::atomic::Ordering;
-        
+
         let pressure = GlobalPressure::new();
         assert!(!pressure.is_pressured());
-        
+
         pressure.cpu_pressure_pct.store(51, Ordering::Relaxed);
         assert!(pressure.is_pressured());
-        
+
         pressure.cpu_pressure_pct.store(0, Ordering::Relaxed);
         pressure.io_pressure_pct.store(60, Ordering::Relaxed);
         assert!(pressure.is_pressured());
-        
+
         pressure.io_pressure_pct.store(0, Ordering::Relaxed);
         pressure.memory_pressure_pct.store(75, Ordering::Relaxed);
         assert!(pressure.is_pressured());
     }
 }
-

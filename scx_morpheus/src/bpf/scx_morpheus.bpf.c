@@ -114,6 +114,31 @@ struct {
 } hint_ringbuf SEC(".maps");
 
 /*
+ * Escalation Ring Buffer - BPF → Userspace events
+ */
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, MORPHEUS_ESCALATION_RINGBUF_SIZE);
+} escalation_ringbuf SEC(".maps");
+
+// ... (helper to emit escalation event)
+static __always_inline void emit_escalation_event(u32 worker_id, u32 pid, u32 severity)
+{
+    struct morpheus_escalation_event *e;
+
+    e = bpf_ringbuf_reserve(&escalation_ringbuf, sizeof(*e), 0);
+    if (!e)
+        return;
+
+    e->worker_id = worker_id;
+    e->pid = pid;
+    e->severity = severity;
+    e->timestamp = bpf_ktime_get_ns();
+
+    bpf_ringbuf_submit(e, 0);
+}
+
+/*
  * Hint Statistics Map - Per-worker rate limiting
  */
 struct hint_stats {
@@ -244,6 +269,11 @@ static __always_inline void execute_escalation(struct task_struct *p,
                                                 u32 policy,
                                                 struct morpheus_stats *stats)
 {
+    struct task_ctx *tctx = get_task_ctx(p);
+    u32 pid = BPF_CORE_READ(p, pid);
+    
+    if (!tctx) return;
+
     switch (policy) {
     case MORPHEUS_ESCALATION_NONE:
         /* Observer mode - no enforcement */
@@ -254,14 +284,17 @@ static __always_inline void execute_escalation(struct task_struct *p,
             __sync_fetch_and_add(&stats->escalations, 1);
         break;
     case MORPHEUS_ESCALATION_CGROUP_THROTTLE:
-        /* Cgroup throttling would be implemented here */
-        /* For now, fall through to kick */
+        /* Emit event for userspace agent to throttle cgroup */
+        emit_escalation_event(tctx->worker_id, pid, SeverityPenalty);
+        
+        /* Fall through to kick for immediate relief */
         scx_bpf_kick_cpu(scx_bpf_task_cpu(p), SCX_KICK_PREEMPT);
         if (stats)
             __sync_fetch_and_add(&stats->escalations, 1);
         break;
     case MORPHEUS_ESCALATION_HYBRID:
-        /* Most aggressive: kick + (future) throttle */
+        /* Emit event AND kick */
+        emit_escalation_event(tctx->worker_id, pid, SeverityPenalty);
         scx_bpf_kick_cpu(scx_bpf_task_cpu(p), SCX_KICK_PREEMPT);
         if (stats)
             __sync_fetch_and_add(&stats->escalations, 1);
@@ -340,8 +373,19 @@ void BPF_STRUCT_OPS(morpheus_running, struct task_struct *p)
 {
     struct task_ctx *tctx = get_task_ctx(p);
 
-    if (tctx)
+    if (tctx) {
+        /* Delta #5: Dynamic Registration Support */
+        if (!tctx->is_morpheus_worker) {
+            u32 pid = BPF_CORE_READ(p, pid);
+            u32 *worker_id_ptr = bpf_map_lookup_elem(&worker_tid_map, &pid);
+            if (worker_id_ptr) {
+                tctx->worker_id = *worker_id_ptr;
+                tctx->is_morpheus_worker = true;
+            }
+        }
+
         tctx->last_tick_ns = bpf_ktime_get_ns();
+    }
 }
 
 void BPF_STRUCT_OPS(morpheus_stopping, struct task_struct *p, bool runnable)
