@@ -138,6 +138,74 @@ typedef _Bool bool;
 
 typedef int pid_t;
 
+/* BPF map types */
+enum bpf_map_type {
+    BPF_MAP_TYPE_UNSPEC,
+    BPF_MAP_TYPE_HASH,
+    BPF_MAP_TYPE_ARRAY,
+    BPF_MAP_TYPE_PROG_ARRAY,
+    BPF_MAP_TYPE_PERF_EVENT_ARRAY,
+    BPF_MAP_TYPE_PERCPU_HASH,
+    BPF_MAP_TYPE_PERCPU_ARRAY,
+    BPF_MAP_TYPE_STACK_TRACE,
+    BPF_MAP_TYPE_CGROUP_ARRAY,
+    BPF_MAP_TYPE_LRU_HASH,
+    BPF_MAP_TYPE_LRU_PERCPU_HASH,
+    BPF_MAP_TYPE_LPM_TRIE,
+    BPF_MAP_TYPE_ARRAY_OF_MAPS,
+    BPF_MAP_TYPE_HASH_OF_MAPS,
+    BPF_MAP_TYPE_DEVMAP,
+    BPF_MAP_TYPE_SOCKMAP,
+    BPF_MAP_TYPE_CPUMAP,
+    BPF_MAP_TYPE_XSKMAP,
+    BPF_MAP_TYPE_SOCKHASH,
+    BPF_MAP_TYPE_CGROUP_STORAGE_DEPRECATED,
+    BPF_MAP_TYPE_CGROUP_STORAGE = BPF_MAP_TYPE_CGROUP_STORAGE_DEPRECATED,
+    BPF_MAP_TYPE_REUSEPORT_SOCKARRAY,
+    BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE,
+    BPF_MAP_TYPE_QUEUE,
+    BPF_MAP_TYPE_STACK,
+    BPF_MAP_TYPE_SK_STORAGE,
+    BPF_MAP_TYPE_DEVMAP_HASH,
+    BPF_MAP_TYPE_STRUCT_OPS,
+    BPF_MAP_TYPE_RINGBUF,
+    BPF_MAP_TYPE_INODE_STORAGE,
+    BPF_MAP_TYPE_TASK_STORAGE,
+    BPF_MAP_TYPE_BLOOM_FILTER,
+    BPF_MAP_TYPE_USER_RINGBUF,
+    BPF_MAP_TYPE_CGRP_STORAGE,
+};
+
+/* BPF map flags */
+#define BPF_F_NO_PREALLOC (1U << 0)
+#define BPF_F_MMAPABLE    (1U << 10)
+
+/* Sched ext constants */
+enum scx_kick_flags {
+    SCX_KICK_NO_PREEMPT = 0,
+    SCX_KICK_PREEMPT    = 1,
+    SCX_KICK_WAIT       = 2,
+};
+
+enum scx_dsq_id_flags {
+    SCX_DSQ_FLAG_BUILTIN = 1 << 0,
+    SCX_DSQ_FLAG_LOCAL   = 1 << 1,
+    SCX_DSQ_FLAG_GLOBAL  = 1 << 2,
+};
+
+#define SCX_DSQ_LOCAL   0
+#define SCX_DSQ_GLOBAL  1
+
+/* kfuncs */
+extern void scx_bpf_kick_cpu(s32 cpu, u64 flags) __ksym;
+extern s32 scx_bpf_select_cpu_dfl(struct task_struct *p, s32 prev_cpu, u64 wake_flags, bool *is_idle) __ksym;
+extern void scx_bpf_dispatch(struct task_struct *p, u64 dsq_id, u64 slice, u64 enq_flags) __ksym;
+extern void scx_bpf_consume(u64 dsq_id) __ksym;
+extern s32 scx_bpf_create_dsq(u64 dsq_id, s32 cpu) __ksym;
+extern s32 scx_bpf_dsq_move_set_slice(struct task_struct *p, u64 dsq_id, u64 slice, u64 enq_flags) __ksym;
+extern s32 scx_bpf_dsq_move_set_vtime(struct task_struct *p, u64 dsq_id, u64 vtime, u64 enq_flags) __ksym;
+extern u32 scx_bpf_task_cpu(const struct task_struct *p) __ksym;
+
 /* cpumask structure */
 struct cpumask {
     unsigned long bits[128 / sizeof(unsigned long)];

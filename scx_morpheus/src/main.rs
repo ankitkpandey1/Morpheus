@@ -20,8 +20,34 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use libbpf_rs::RingBufferBuilder;
 
 use bpf::*;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct MorpheusEscalationEvent {
+    worker_id: u32,
+    pid: u32,
+    severity: u32,
+    _pad: u32,
+    timestamp: u64,
+}
+
+struct PenaltyManager {
+    // pid -> (original_quota, expiration_time)
+    active_penalties: HashMap<u32, (String, std::time::Instant)>,
+}
+
+impl PenaltyManager {
+    fn new() -> Self {
+        Self {
+            active_penalties: HashMap::new(),
+        }
+    }
+}
 
 /// Morpheus-Hybrid sched_ext scheduler
 ///
@@ -124,6 +150,37 @@ fn main() -> Result<()> {
     } else {
         None
     };
+
+    // Start escalation monitor
+    let penalty_manager = Arc::new(Mutex::new(PenaltyManager::new()));
+    let pm_clone = penalty_manager.clone();
+    
+    // We need a separate RingBuffer for the escalation map
+    // Note: libbpf-rs RingBuffer APIs usually take a callback.
+    // We'll spawn a thread to poll it.
+    let mut rb_builder = RingBufferBuilder::new();
+    rb_builder.add(&skel.maps.escalation_ringbuf, move |data: &[u8]| {
+        if data.len() < std::mem::size_of::<MorpheusEscalationEvent>() {
+            return 0;
+        }
+        let event = unsafe { std::ptr::read_unaligned(data.as_ptr() as *const MorpheusEscalationEvent) };
+        handle_escalation_event(&event, &pm_clone);
+        0
+    }).context("Failed to add escalation ringbuf")?;
+    
+    let ringbuf = rb_builder.build().context("Failed to build ringbuf")?;
+    let run_clone = running.clone();
+    
+    std::thread::spawn(move || {
+        while run_clone.load(Ordering::SeqCst) {
+            // Poll with timeout
+            if let Err(e) = ringbuf.poll(Duration::from_millis(100)) {
+                tracing::warn!("Ringbuf poll error: {}", e);
+            }
+            // Check for expired penalties
+            check_expired_penalties(&pm_clone);
+        }
+    });
 
     while running.load(Ordering::SeqCst) {
         if let Some(interval) = stats_interval {
@@ -234,5 +291,72 @@ fn read_runqueue_depth() -> Option<u32> {
         }
     }
     None
+}
+
+fn handle_escalation_event(event: &MorpheusEscalationEvent, pm: &Arc<Mutex<PenaltyManager>>) {
+    info!("ESCALATION: Worker {} (PID {}) - Severity {}", event.worker_id, event.pid, event.severity);
+    
+    let pid = event.pid;
+    let mut guard = pm.lock().unwrap();
+    
+    if guard.active_penalties.contains_key(&pid) {
+        return; // Already penalized
+    }
+    
+    // Find Cgroup
+    if let Ok(cgroup_path) = find_cgroup_path(pid) {
+        let max_file = format!("{}/cpu.max", cgroup_path);
+        
+        // Read current
+        if let Ok(current) = std::fs::read_to_string(&max_file) {
+            // Write penalty (1000 100000 = 1%)
+            if let Ok(_) = std::fs::write(&max_file, "1000 100000") {
+                info!("  -> Throttled cgroup {} to 1%", max_file);
+                // Store original value to restore later
+                guard.active_penalties.insert(pid, (current, std::time::Instant::now() + Duration::from_secs(5)));
+            } else {
+                tracing::error!("  -> Failed to write to {}", max_file);
+            }
+        }
+    }
+}
+
+fn check_expired_penalties(pm: &Arc<Mutex<PenaltyManager>>) {
+    let mut guard = pm.lock().unwrap();
+    let now = std::time::Instant::now();
+    let mut expired = Vec::new();
+    
+    for (pid, (_, expiry)) in guard.active_penalties.iter() {
+        if now >= *expiry {
+            expired.push(*pid);
+        }
+    }
+    
+    for pid in expired {
+        if let Some((original, _)) = guard.active_penalties.remove(&pid) {
+             if let Ok(cgroup_path) = find_cgroup_path(pid) {
+                let max_file = format!("{}/cpu.max", cgroup_path);
+                if let Ok(_) = std::fs::write(&max_file, &original) {
+                    info!("  -> Restored quota for PID {}", pid);
+                }
+             }
+        }
+    }
+}
+
+fn find_cgroup_path(pid: u32) -> Result<String> {
+    let content = std::fs::read_to_string(format!("/proc/{}/cgroup", pid))?;
+    // Format: 0::/user.slice/...
+    for line in content.lines() {
+        if line.starts_with("0::") {
+            let path = line.strip_prefix("0::").unwrap_or("/");
+            // Keep it simple: assume cgroup v2 mount at /sys/fs/cgroup
+            if path == "/" {
+                 return Ok("/sys/fs/cgroup".to_string());
+            }
+            return Ok(format!("/sys/fs/cgroup{}", path));
+        }
+    }
+    Err(anyhow::anyhow!("Cgroup not found"))
 }
 

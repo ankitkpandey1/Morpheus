@@ -255,4 +255,21 @@ struct morpheus_hint {
 #define MORPHEUS_GLOBAL_PRESSURE_NAME   "global_pressure_map"
 #define MORPHEUS_CONFIG_MAP_NAME        "config_map"
 
+// Escalation Ring Buffer - BPF → Userspace
+#define MORPHEUS_ESCALATION_RINGBUF_SIZE (64 * 1024) // 64KB
+
+enum MorpheusSeverity {
+    SeverityWarning = 1,
+    SeverityPenalty = 2,
+};
+
+struct morpheus_escalation_event {
+    __u32 worker_id;
+    __u32 pid;
+    __u32 severity;
+    __u32 _pad;
+    __u64 timestamp;
+};
+
 #endif /* __MORPHEUS_SHARED_H */
+```
