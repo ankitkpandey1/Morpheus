@@ -59,3 +59,39 @@ async def ffi_work():
 - Linux 6.12+ with sched_ext enabled
 - `scx_morpheus` scheduler loaded
 - Python 3.8+
+
+## CLI Runner (Zero-Config)
+
+You can run existing asyncio scripts without code changes using the `morpheus.run` module.
+
+```bash
+# Run a script
+python -m morpheus.run my_script.py
+
+# Run a module
+python -m morpheus.run -m my_module
+```
+
+## Framework Integrations
+
+### FastAPI / Uvicorn
+
+Morpheus works seamlessly with FastAPI. You must use the `--loop asyncio` flag with Uvicorn to ensure it uses the Morpheus-compatible event loop policy (instead of `uvloop`).
+
+```bash
+# Run using the Morpheus runner
+python -m morpheus.run -m uvicorn examples.fastapi_app:app --loop asyncio --port 8000
+```
+
+### Celery
+
+For Celery, since workers are spawned as separate processes, you must install the Morpheus loop policy inside the worker process initialization.
+
+```python
+from celery import signals
+from morpheus.asyncio import install_morpheus_loop
+
+@signals.worker_process_init.connect
+def setup_morpheus(**kwargs):
+    install_morpheus_loop()
+```
