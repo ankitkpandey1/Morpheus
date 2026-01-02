@@ -4,7 +4,7 @@ Morpheus-Hybrid Python Package
 Kernel-guided cooperative async runtime with opt-in escalation.
 """
 
-from .morpheus_asyncio import (
+from .asyncio import (
     morpheus_checkpoint,
     morpheus_critical,
     force_yield,
@@ -17,7 +17,7 @@ from .morpheus_asyncio import (
 
 # Re-export native module functions if available
 try:
-    from morpheus import (
+    from _morpheus import (
         checkpoint,
         yield_requested,
         acknowledge_yield,
