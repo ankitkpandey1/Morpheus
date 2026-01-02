@@ -3,8 +3,8 @@
   "workers": 8,
   "duration": 10,
   "latencies_us": [
-    42.12000021652784
+    45.589999899675604
   ],
-  "total_work_units": 393992,
-  "throughput": 39399.2
+  "total_work_units": 442360,
+  "throughput": 44236.0
 }

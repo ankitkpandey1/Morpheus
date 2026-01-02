@@ -41,12 +41,12 @@ char _license[] SEC("license") = "GPL";
  * Configuration - set from userspace before loading
  * ============================================================================
  */
-const volatile u64 slice_ns = MORPHEUS_DEFAULT_SLICE_NS;
-const volatile u64 grace_period_ns = MORPHEUS_GRACE_PERIOD_NS;
+// Default values (fallback)
+const volatile u64 default_slice_ns = MORPHEUS_DEFAULT_SLICE_NS;
+const volatile u64 default_grace_period_ns = MORPHEUS_GRACE_PERIOD_NS;
 const volatile u32 max_workers = MORPHEUS_MAX_WORKERS;
-const volatile bool debug_mode = false;
 
-/* Delta #1: Observer vs Enforcer mode */
+const volatile bool debug_mode = false;
 const volatile u32 scheduler_mode = MORPHEUS_MODE_OBSERVER_ONLY;
 
 /*
@@ -159,8 +159,6 @@ struct {
 struct morpheus_config {
     u64 slice_ns;
     u64 grace_period_ns;
-    u32 hint_rate_limit;    /* Max hints per second per worker */
-    u32 scheduler_mode;     /* OBSERVER_ONLY or ENFORCED */
 };
 
 struct {
@@ -349,7 +347,8 @@ s32 BPF_STRUCT_OPS(morpheus_select_cpu, struct task_struct *p, s32 prev_cpu,
 
     cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
     if (is_idle)
-        scx_bpf_dispatch(p, SCX_DSQ_LOCAL, slice_ns, 0);
+        // Dispatch directly to the idle CPU's local queue
+        scx_bpf_dispatch(p, SCX_DSQ_LOCAL, default_slice_ns, 0);
 
     return cpu;
 }
@@ -361,7 +360,11 @@ void BPF_STRUCT_OPS(morpheus_enqueue, struct task_struct *p, u64 enq_flags)
     if (tctx)
         tctx->runtime_ns = 0;
 
-    scx_bpf_dispatch(p, MORPHEUS_DSQ_ID, slice_ns, enq_flags);
+    u32 zero = 0;
+    struct morpheus_config *cfg = bpf_map_lookup_elem(&config_map, &zero);
+    u64 slice = cfg ? cfg->slice_ns : default_slice_ns;
+    
+    scx_bpf_dispatch(p, MORPHEUS_DSQ_ID, slice, enq_flags);
 }
 
 void BPF_STRUCT_OPS(morpheus_dispatch, s32 cpu, struct task_struct *prev)
@@ -449,15 +452,21 @@ void BPF_STRUCT_OPS(morpheus_tick, struct task_struct *p)
         return;
     }
 
+    /* Get configuration */
+    u32 zero = 0;
+    struct morpheus_config *cfg = bpf_map_lookup_elem(&config_map, &zero);
+    u64 slice = cfg ? cfg->slice_ns : default_slice_ns;
+    u64 grace = cfg ? cfg->grace_period_ns : default_grace_period_ns;
+
     /* Check if we exceeded the slice */
-    if (tctx->runtime_ns > slice_ns) {
+    if (tctx->runtime_ns > slice) {
         /* Increment preempt_seq to signal yield request */
         preempt_seq = __sync_add_and_fetch(&scb->preempt_seq, 1);
 
         tid = BPF_CORE_READ(p, pid);
 
         /* Emit hint via ring buffer */
-        deadline = now + grace_period_ns;
+        deadline = now + grace;
         emit_hint(tctx->worker_id, preempt_seq, MORPHEUS_HINT_BUDGET,
                   tid, deadline);
 
@@ -490,7 +499,7 @@ void BPF_STRUCT_OPS(morpheus_tick, struct task_struct *p)
         if (escapable &&
             !is_critical &&
             last_ack_seq < preempt_seq &&
-            tctx->runtime_ns > (slice_ns + grace_period_ns) &&
+            tctx->runtime_ns > (slice + grace) &&
             escalation_policy != MORPHEUS_ESCALATION_NONE) {
 
             if (debug_mode)
