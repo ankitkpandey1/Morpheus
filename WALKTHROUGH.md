@@ -301,7 +301,10 @@ void BPF_STRUCT_OPS(morpheus_tick, struct task_struct *p)
             last_ack_seq < preempt_seq &&
             tctx->runtime_ns > (slice_ns + grace_period_ns)) {
             
-            // Force preemption
+            // 1. Emit escalation event (for userspace cgroup throttling)
+            emit_escalation_event(tctx->worker_id, pid, SeverityPenalty);
+
+            // 2. Force preemption (kick CPU)
             scx_bpf_kick_cpu(scx_bpf_task_cpu(p), SCX_KICK_PREEMPT);
         }
     }
@@ -332,8 +335,11 @@ let skel_builder = ScxMorpheusSkelBuilder::default();
 let mut open_skel = skel_builder.open()?;
 
 // Set configuration BEFORE loading (read-only data section)
-open_skel.rodata_mut().slice_ns = args.slice_ms * 1_000_000;
-open_skel.rodata_mut().grace_period_ns = args.grace_ms * 1_000_000;
+if args.enforce {
+    open_skel.maps.rodata_data.scheduler_mode = 1;
+}
+open_skel.maps.rodata_data.slice_ns = args.slice_ms * 1_000_000;
+open_skel.maps.rodata_data.grace_period_ns = args.grace_ms * 1_000_000;
 
 // Load BPF programs into kernel
 let mut skel = open_skel.load()?;
@@ -343,6 +349,17 @@ skel.attach()?;
 ```
 
 The skeleton is auto-generated at build time by `libbpf-cargo` from the BPF object file.
+
+### Userspace Penalty Manager
+
+The `scx_morpheus` binary runs a dedicated thread to handle "Cgroup Throttling" requests from the kernel, as BPF cannot directly write to cgroup files.
+
+1. **Kernel (BPF)**: Detects a violation and emits an `EscalationEvent` to a ring buffer.
+2. **Userspace (`scx_morpheus`)**:
+   - Polls the ring buffer.
+   - Maps the PID to its cgroup path (e.g., `/sys/fs/cgroup/...`).
+   - Writes to `cpu.max` to throttle the cgroup (e.g., 1% quota).
+   - Restores the original quota after a fixed penalty duration (default 5s).
 
 ---
 

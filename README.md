@@ -83,6 +83,9 @@ cd morpheus-py && maturin build --release
 # Load the sched_ext scheduler (requires root)
 # Observer mode (default) - collects metrics, emits hints, no enforcement
 sudo ./target/release/scx_morpheus --slice-ms 5 --grace-ms 100 --debug
+
+# Enforcement mode (Opt-in) - enables cgroup throttling and CPU kicks
+sudo ./target/release/scx_morpheus --enforce
 ```
 
 ### Rust Usage
@@ -126,6 +129,9 @@ async def ffi_work():
     with morpheus.critical():
         # Protected from forced preemption
         pass
+
+# Run the FastAPI example
+# python -m morpheus.run -m uvicorn examples.fastapi_app:app --loop asyncio --port 8000
 ```
 
 ## Benchmarks

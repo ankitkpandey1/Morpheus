@@ -76,6 +76,10 @@ struct Args {
     /// Pin BPF maps to /sys/fs/bpf/morpheus for runtime access
     #[arg(long)]
     pin_maps: bool,
+
+    /// Enable enforcement mode (cgroup throttling and kicking)
+    #[arg(long)]
+    enforce: bool,
 }
 
 fn main() -> Result<()> {
@@ -104,6 +108,13 @@ fn main() -> Result<()> {
     let open_skel = skel_builder
         .open(&mut open_object)
         .context("Failed to open BPF skeleton")?;
+
+    if args.enforce {
+        open_skel.maps.rodata_data.scheduler_mode = 1;
+        info!("Enforcement mode ENABLED");
+    } else {
+        info!("Enforcement mode DISABLED (Observer only)");
+    }
 
     // Load the skeleton
     let mut skel = open_skel.load().context("Failed to load BPF program")?;
@@ -159,12 +170,13 @@ fn main() -> Result<()> {
     // Note: libbpf-rs RingBuffer APIs usually take a callback.
     // We'll spawn a thread to poll it.
     let mut rb_builder = RingBufferBuilder::new();
+    let pm_clone_rb = pm_clone.clone();
     rb_builder.add(&skel.maps.escalation_ringbuf, move |data: &[u8]| {
         if data.len() < std::mem::size_of::<MorpheusEscalationEvent>() {
             return 0;
         }
         let event = unsafe { std::ptr::read_unaligned(data.as_ptr() as *const MorpheusEscalationEvent) };
-        handle_escalation_event(&event, &pm_clone);
+        handle_escalation_event(&event, &pm_clone_rb);
         0
     }).context("Failed to add escalation ringbuf")?;
     

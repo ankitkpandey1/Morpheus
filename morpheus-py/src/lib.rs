@@ -69,7 +69,7 @@ fn yield_requested() -> bool {
 #[pyfunction]
 fn async_checkpoint(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     // Import asyncio.sleep(0) to properly yield to the event loop
-    let asyncio = py.import("asyncio")?;
+    let asyncio = py.import_bound("asyncio")?;
     
     // Check if yield is requested
     let should_yield = rt::checkpoint_sync();
@@ -260,7 +260,7 @@ fn is_defensive_mode() -> bool {
 
 /// Morpheus Python module
 #[pymodule]
-fn morpheus(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _morpheus(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(checkpoint, m)?)?;
     m.add_function(wrap_pyfunction!(yield_requested, m)?)?;
     m.add_function(wrap_pyfunction!(async_checkpoint, m)?)?;
