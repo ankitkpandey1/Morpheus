@@ -141,6 +141,16 @@ See [benchmark.md](benchmark.md) for comprehensive comparative methodology and r
 - Critical section protection adds only 0.50% overhead
 - Starvation recovery validation (p99 > 13 ms without Morpheus)
 
+| Workers | Blocking (Throughput) | Naive (Throughput) | Morpheus (Throughput) |
+| :--- | :--- | :--- | :--- |
+| **8** | 33,431 | 3,616 | **44,236** |
+
+*Morpheus demonstrates 12x higher throughput than Naive yielding at saturation by avoiding unnecessary context switches, and 30% higher than Blocking by maintaining cooperative responsiveness without preemption interrupt overhead.*
+
+**New in v0.1.0:**
+*   **Adaptive Slicing**: Dynamically adjusts time slice (2ms-10ms) based on runqueue depth.
+*   **Hot Path Optimization**: Python-side atomic checks reduce non-yielding checkpoint overhead to <5%.
+
 ```bash
 # Starvation recovery test
 sudo ./target/release/starvation -n 4 --duration 10
