@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2024 Ankit Kumar Pandey <ankitkpandey1@gmail.com>
+
+[package]
+name = "morpheus-tokio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Tokio runtime integration for Morpheus-Hybrid kernel-guided cooperative scheduling"
+
+[dependencies]
+morpheus-runtime = { path = "../morpheus-runtime", features = ["tokio"] }
+morpheus-common = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "macros", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

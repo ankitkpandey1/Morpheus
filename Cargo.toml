@@ -11,6 +11,7 @@ members = [
     "scx_morpheus",
     "morpheus-bench",
     "morpheus-py",
+    "morpheus-tokio",
 ]
 
 [workspace.package]

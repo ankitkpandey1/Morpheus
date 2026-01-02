@@ -128,9 +128,15 @@ fn main() -> Result<()> {
     while running.load(Ordering::SeqCst) {
         if let Some(interval) = stats_interval {
             std::thread::sleep(interval);
+            // Update global pressure from PSI
+            if let Err(e) = update_global_pressure(&skel) {
+                tracing::warn!("Failed to update pressure: {}", e);
+            }
             print_stats(&skel)?;
         } else {
             std::thread::sleep(Duration::from_secs(1));
+            // Still update pressure even if stats disabled
+            let _ = update_global_pressure(&skel);
         }
     }
 
@@ -171,3 +177,62 @@ fn print_stats(skel: &ScxMorpheusSkel) -> Result<()> {
 
     Ok(())
 }
+
+/// Update global pressure from Linux PSI (Pressure Stall Information)
+fn update_global_pressure(skel: &ScxMorpheusSkel) -> Result<()> {
+    let cpu_pressure = read_psi_avg10("/proc/pressure/cpu").unwrap_or(0);
+    let io_pressure = read_psi_avg10("/proc/pressure/io").unwrap_or(0);
+    let memory_pressure = read_psi_avg10("/proc/pressure/memory").unwrap_or(0);
+    
+    // Calculate aggregate runqueue depth from /proc/loadavg
+    let runqueue_depth = read_runqueue_depth().unwrap_or(0);
+
+    // Pack the global pressure struct (4 x u32 = 16 bytes)
+    let mut value = [0u8; 16];
+    value[0..4].copy_from_slice(&cpu_pressure.to_ne_bytes());
+    value[4..8].copy_from_slice(&io_pressure.to_ne_bytes());
+    value[8..12].copy_from_slice(&memory_pressure.to_ne_bytes());
+    value[12..16].copy_from_slice(&runqueue_depth.to_ne_bytes());
+
+    let key = 0u32.to_ne_bytes();
+    skel.maps
+        .global_pressure_map
+        .update(&key, &value, libbpf_rs::MapFlags::ANY)
+        .context("Failed to update global_pressure_map")?;
+
+    Ok(())
+}
+
+/// Read PSI avg10 value from /proc/pressure/* files
+fn read_psi_avg10(path: &str) -> Option<u32> {
+    let content = std::fs::read_to_string(path).ok()?;
+    // Format: "some avg10=X.XX avg60=Y.YY avg300=Z.ZZ total=N"
+    for line in content.lines() {
+        if line.starts_with("some") {
+            if let Some(avg10_part) = line.split_whitespace()
+                .find(|s| s.starts_with("avg10="))
+            {
+                let value_str = avg10_part.strip_prefix("avg10=")?;
+                let value: f32 = value_str.parse().ok()?;
+                return Some((value.min(100.0).max(0.0)) as u32);
+            }
+        }
+    }
+    None
+}
+
+/// Read runqueue depth from /proc/loadavg
+fn read_runqueue_depth() -> Option<u32> {
+    let content = std::fs::read_to_string("/proc/loadavg").ok()?;
+    // Format: "0.00 0.00 0.00 1/234 5678"
+    let parts: Vec<&str> = content.split_whitespace().collect();
+    if parts.len() >= 4 {
+        // Fourth field is running/total like "1/234"
+        let rq_parts: Vec<&str> = parts[3].split('/').collect();
+        if let Some(running) = rq_parts.first() {
+            return running.parse().ok();
+        }
+    }
+    None
+}
+

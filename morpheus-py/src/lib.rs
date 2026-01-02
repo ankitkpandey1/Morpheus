@@ -56,6 +56,40 @@ fn yield_requested() -> bool {
     }
 }
 
+/// Async checkpoint - await this to yield to the event loop if kernel requests.
+///
+/// This is the preferred way to use checkpoints in Python async code:
+///
+/// ```python
+/// async def heavy_computation():
+///     for i in range(1_000_000):
+///         if i % 1000 == 0:
+///             await morpheus.async_checkpoint()  # Properly yields to asyncio
+/// ```
+#[pyfunction]
+fn async_checkpoint(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+    // Import asyncio.sleep(0) to properly yield to the event loop
+    let asyncio = py.import("asyncio")?;
+    
+    // Check if yield is requested
+    let should_yield = rt::checkpoint_sync();
+    
+    if should_yield {
+        // Acknowledge the yield
+        if let Some(scb) = rt::worker::try_current_scb() {
+            scb.acknowledge();
+        }
+        // Return asyncio.sleep(0) coroutine to yield to event loop
+        asyncio.call_method1("sleep", (0.0,))
+    } else {
+        // Return a completed future that resolves immediately
+        // Create a coroutine that does nothing
+        let future = asyncio.getattr("Future")?.call0()?;
+        future.call_method1("set_result", (py.None(),))?;
+        Ok(future)
+    }
+}
+
 /// Acknowledge a kernel yield request.
 ///
 /// Call this after the event loop has yielded to tell the kernel
@@ -229,6 +263,7 @@ fn is_defensive_mode() -> bool {
 fn morpheus(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(checkpoint, m)?)?;
     m.add_function(wrap_pyfunction!(yield_requested, m)?)?;
+    m.add_function(wrap_pyfunction!(async_checkpoint, m)?)?;
     m.add_function(wrap_pyfunction!(acknowledge_yield, m)?)?;
     m.add_function(wrap_pyfunction!(pressure_level, m)?)?;
     m.add_function(wrap_pyfunction!(budget_remaining_ns, m)?)?;

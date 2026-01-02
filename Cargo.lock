@@ -662,6 +662,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "morpheus-tokio"
+version = "0.1.0"
+dependencies = [
+ "morpheus-common",
+ "morpheus-runtime",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "nix"
 version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
