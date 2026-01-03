@@ -24,9 +24,10 @@ jobs:
           libelf-dev \
           clang \
           llvm \
-          linux-headers-$(uname -r) \
+          linux-headers-generic \
           libbpf-dev \
-          bpftool
+          linux-tools-common \
+          linux-tools-generic
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -83,8 +84,9 @@ jobs:
           clang \
           llvm \
           libbpf-dev \
-          bpftool \
-          linux-headers-$(uname -r)
+          linux-tools-common \
+          linux-tools-generic \
+          linux-headers-generic
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
