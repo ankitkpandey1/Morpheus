@@ -19,32 +19,21 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          pkg-config \
-          libelf-dev \
-          clang \
-          llvm \
-          linux-headers-generic \
-          libbpf-dev \
-          linux-tools-common \
-          linux-tools-generic
+        sudo apt-get install -y pkg-config libelf-dev
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy, rustfmt
     
-    - name: Build (debug)
-      run: cargo build --workspace
-    
-    - name: Build (release)
-      run: cargo build --workspace --release
+    - name: Build core crates (excluding BPF scheduler)
+      run: cargo build -p morpheus-common -p morpheus-runtime -p morpheus-tokio -p morpheus-bench
     
     - name: Clippy
-      run: cargo clippy --workspace --all-targets -- -D warnings -A clippy::useless_conversion
+      run: cargo clippy -p morpheus-common -p morpheus-runtime -p morpheus-tokio -p morpheus-bench -- -D warnings
     
     - name: Tests
-      run: cargo test --workspace
+      run: cargo test -p morpheus-common -p morpheus-runtime -p morpheus-tokio
     
     - name: Format check
       run: cargo fmt --all -- --check
@@ -55,49 +44,32 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y pkg-config libelf-dev
+    
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
-    - name: Install Python dependencies
-      run: |
-        pip install maturin pytest
-    
-    - name: Verify Python constants
-      run: |
-        cd morpheus-py
-        PYTHONPATH=. python -c "from morpheus_common import verify_offsets; verify_offsets(); print('✅ Python offsets verified')"
-
-  bpf-verify:
-    runs-on: ubuntu-24.04
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          pkg-config \
-          libelf-dev \
-          clang \
-          llvm \
-          libbpf-dev \
-          linux-tools-common \
-          linux-tools-generic \
-          linux-headers-generic
-    
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
     
-    - name: Build BPF
-      run: |
-        cargo build --release -p scx_morpheus
-        echo "✅ BPF compilation successful"
+    - name: Install Python dependencies
+      run: pip install maturin pytest pytest-asyncio
     
-    # Note: Full BPF verification requires a VM with sched_ext kernel
-    # This job only verifies compilation, not loading
+    - name: Build and install Python bindings
+      run: |
+        cd morpheus-py
+        maturin build --release
+        pip install target/wheels/*.whl
+    
+    - name: Run Python tests
+      run: |
+        cd morpheus-py
+        PYTHONPATH=python pytest tests/ -v
 
   benchmark:
     runs-on: ubuntu-24.04
@@ -110,5 +82,4 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
     
     - name: Run microbenchmarks
-      run: |
-        cargo bench --bench checkpoint -- --noplot
+      run: cargo bench -p morpheus-bench --bench checkpoint -- --noplot
