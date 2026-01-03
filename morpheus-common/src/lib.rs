@@ -300,7 +300,17 @@ pub struct MorpheusScb {
     /// Worker lifecycle state (WorkerState enum)
     pub worker_state: AtomicU32,
 
-    _reserved0: [u64; 5],
+    /// Count of hints that were dropped/lost (ring buffer overflow)
+    pub hint_loss_count: AtomicU32,
+
+    /// Timestamp (ns) of last escalation event against this worker
+    pub last_escalation_ns: AtomicU64,
+
+    /// Count of ring buffer overflow events
+    pub ringbuf_overflow_count: AtomicU32,
+
+    /// Reserved for future use
+    _reserved0: [u32; 5],
 
     // === Cache Line 2: Runtime → Kernel ===
     /// 1 if in critical section (FFI, GIL-held, etc.).
@@ -319,7 +329,8 @@ pub struct MorpheusScb {
     /// Last yield reason (YieldReason enum) - for observability
     pub last_yield_reason: AtomicU32,
 
-    _reserved1: [u64; 1],
+    /// Reservation token for future reservation protocol
+    pub reservation_token: AtomicU64,
 
     /// Escalation policy for this worker
     pub escalation_policy: AtomicU32,
@@ -346,13 +357,16 @@ impl MorpheusScb {
             budget_remaining_ns: AtomicU64::new(0),
             kernel_pressure_level: AtomicU32::new(0),
             worker_state: AtomicU32::new(WorkerState::Init as u32),
+            hint_loss_count: AtomicU32::new(0),
+            last_escalation_ns: AtomicU64::new(0),
+            ringbuf_overflow_count: AtomicU32::new(0),
             _reserved0: [0; 5],
             is_in_critical_section: AtomicU32::new(0),
             escapable: AtomicU32::new(if escapable { 1 } else { 0 }),
             last_ack_seq: AtomicU64::new(0),
             runtime_priority: AtomicU32::new(500), // Default mid-priority
             last_yield_reason: AtomicU32::new(YieldReason::None as u32),
-            _reserved1: [0; 1],
+            reservation_token: AtomicU64::new(0),
             escalation_policy: AtomicU32::new(EscalationPolicy::None as u32),
             _pad: 0,
         }

@@ -139,7 +139,23 @@ struct morpheus_scb {
      */
     __u32 worker_state;
 
-    __u64 _reserved0[5];
+    /*
+     * Count of hints that were dropped/lost (ring buffer overflow).
+     * Kernel increments this when it fails to emit a hint.
+     */
+    __u32 hint_loss_count;
+
+    /*
+     * Timestamp (ns) of last escalation event against this worker.
+     */
+    __u64 last_escalation_ns;
+
+    /*
+     * Count of ring buffer overflow events.
+     */
+    __u32 ringbuf_overflow_count;
+
+    __u32 _reserved0[5];
 
     /* === Cache Line 2: Runtime → Kernel === */
 
@@ -176,7 +192,10 @@ struct morpheus_scb {
      */
     __u32 last_yield_reason;
 
-    __u64 _reserved1[1];
+    /*
+     * Reservation token for future reservation protocol.
+     */
+    __u64 reservation_token;
 
     /*
      * Escalation policy for this worker (one of MORPHEUS_ESCALATION_*).
